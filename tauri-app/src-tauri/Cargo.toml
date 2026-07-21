@@ -1,0 +1,16 @@
+[package]
+name = "coverforge"
+version = "1.0.0"
+description = "自媒体封面标题生成工具"
+authors = ["you"]
+license = "MIT"
+repository = ""
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0", features = ["shell-open"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

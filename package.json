@@ -1,0 +1,29 @@
+{
+  "name": "coverforge",
+  "version": "1.0.0",
+  "description": "自媒体封面标题生成工具",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "build": "npm run build:web && npm run build:server",
+    "build:web": "cd client && npm run build",
+    "build:server": "cd server && npm run build",
+    "start": "cd server && npm start",
+    "build:electron": "cd client && npm run electron:build",
+    "app:mac": "cd client && npm run electron:build -- --mac",
+    "app:win": "cd client && npm run electron:build -- --win",
+    "app:linux": "cd client && npm run electron:build -- --linux"
+  },
+  "keywords": [
+    "cover",
+    "design",
+    "editor"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
