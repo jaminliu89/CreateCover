@@ -37,14 +37,24 @@
     "directories": {
       "output": "release"
     },
+    "asar": false,
+    "electronDist": "node_modules/electron/dist",
     "files": [
       "dist/**/*",
       "electron/**/*"
     ],
     "extraResources": [
       {
-        "from": "../server/dist",
-        "to": "server"
+        "from": "public/models",
+        "to": "models"
+      },
+      {
+        "from": "public/onnxruntime-web",
+        "to": "onnxruntime-web"
+      },
+      {
+        "from": "public/resources.json",
+        "to": "resources.json"
       }
     ],
     "mac": {
@@ -53,7 +63,9 @@
         "zip"
       ],
       "category": "public.app-category.design",
-      "icon": "build/icon.icns"
+      "icon": "build/icon.icns",
+      "hardenedRuntime": false,
+      "identity": "-"
     },
     "win": {
       "target": [

@@ -49,6 +49,11 @@ export interface TextElement {
   // 字符级描边（P1-8 2026-07-25）：开启后每个字符按 index%5 循环使用 palette 描边色
   // 适合"彩虹标题"等需要每个字不同描边的场景
   strokeColorPerChar?: boolean
+  // 文字特效（P2-6 2026-07-25）：通过 text-shadow 多层组合实现
+  // - glow 外发光（霓虹效果）
+  // - threeD 3D 立体（复古海报风）
+  // - emboss 雕印（凹凸感）
+  effects?: { glow?: boolean; threeD?: boolean; emboss?: boolean }
 }
 
 export interface ImageElement {

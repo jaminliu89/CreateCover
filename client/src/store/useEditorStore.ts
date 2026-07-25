@@ -4,6 +4,8 @@ import type { Element, TextElement, ShapeElement } from '../data'
 import type { Ratio } from '../types'
 import { rasterizeTextElement, rasterizeShapeElement, canRasterize } from '../utils/rasterize'
 import { getShortSide } from '../utils/canvasConstants'
+import { autoLayout as aiAutoLayout, summarizeAutoLayout } from '../utils/autoLayout'
+import { convertTextElementToImage } from '../utils/textToImage'
 
 // 背景元素检测：id 以 'bg' 开头 或 shape 是 overlay
 // 背景元素锁定在数组最前，禁止上移/置顶（避免覆盖文字）
@@ -34,6 +36,12 @@ interface EditorState {
   forceNoStroke: boolean
   setForceNoStroke: (v: boolean) => void
 
+  // 构图参考线（D-2 2026-07-25：纯视觉叠加，不参与导出/拖拽命中/历史）
+  showGuides: boolean
+  guideType: 'thirds' | 'golden' | 'center' | 'all'
+  toggleGuides: () => void
+  setGuideType: (t: 'thirds' | 'golden' | 'center' | 'all') => void
+
   // 用户自定义预设
   userPresets: { id: string; name: string; ratio: Ratio; elements: Element[]; createdAt: number; thumbnail: string }[]
   saveAsPreset: (name: string) => void
@@ -43,6 +51,8 @@ interface EditorState {
   // 基础操作
   setRatio: (ratio: Ratio) => void
   adaptFontSizeToRatio: (oldRatio: Ratio, newRatio: Ratio) => void
+  autoLayout: () => string  // P2-1 2026-07-25: 返回摘要给 caller 显示 toast
+  convertTextToImage: (id: string) => boolean  // P2-2 2026-07-25: 返回是否成功
   addElement: (element: Element) => void
   updateElement: (id: string, updates: Partial<Element>) => void
   deleteElement: (id: string) => void
@@ -134,6 +144,48 @@ export const useEditorStore = create<EditorState>()(
       dirty: true,
     }))
     get().saveHistory()
+  },
+
+  /**
+   * AI 自动排版（P2-1 2026-07-25）
+   * 本地算法: 文字密度 + 比例 + 多元素层级 → 自动调整字号/字重/字间距/行高/位置
+   * 保留: 内容/颜色/字体族/旋转/翻转 (用户内容不动)
+   * 返回摘要字符串 "超大×1 / 主×1 / 副×1" 给 toast 显示
+   */
+  autoLayout: () => {
+    const { elements, ratio } = get()
+    const patches = aiAutoLayout(elements, ratio)
+    if (patches.size === 0) return '无文字元素'
+    set(state => ({
+      elements: state.elements.map(el => {
+        const patch = patches.get(el.id)
+        return patch ? { ...el, ...patch } : el
+      }) as Element[],
+      dirty: true,
+    }))
+    get().saveHistory()
+    return summarizeAutoLayout(elements)
+  },
+
+  /**
+   * 文字转图片（P2-2 2026-07-25）
+   * 把指定 id 的 TextElement 用 Canvas2D 渲染成 ImageElement
+   * 保留: x/y/rotation/flip/opacity/locked
+   * 丢失: 内容编辑/字号/字重/字间距/渐变/描边 (转图后固化)
+   * 返回 true 成功 / false 失败
+   */
+  convertTextToImage: (id) => {
+    const target = get().elements.find(el => el.id === id)
+    if (!target || target.type !== 'text') return false
+    const imageEl = convertTextElementToImage(target as TextElement)
+    if (!imageEl) return false
+    set(state => ({
+      elements: state.elements.map(el => el.id === id ? imageEl : el) as Element[],
+      selectedId: id,  // 保持选中(现在选中的是图片)
+      dirty: true,
+    }))
+    get().saveHistory()
+    return true
   },
 
   addElement: (element) => {
@@ -492,6 +544,12 @@ export const useEditorStore = create<EditorState>()(
   // 是否默认清除描边（持久化到 localStorage）
   forceNoStroke: true,
   setForceNoStroke: (v) => set({ forceNoStroke: v }),
+
+  // 构图参考线（默认关闭，纯视觉，不进历史/不持久化）
+  showGuides: false,
+  guideType: 'thirds',
+  toggleGuides: () => set(s => ({ showGuides: !s.showGuides })),
+  setGuideType: (t) => set({ guideType: t }),
 
   // 用户自定义预设
   userPresets: [],

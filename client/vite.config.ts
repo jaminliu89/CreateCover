@@ -4,6 +4,7 @@ import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
+  base: './', // 相对路径，兼容 file:// (Electron 桌面端)
   server: {
     host: '0.0.0.0',
     port: 5176,

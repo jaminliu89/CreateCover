@@ -3,6 +3,8 @@ import { useEditorStore } from '../../store/useEditorStore'
 import { AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline } from 'lucide-react'
 import LayerControls from './LayerControls'
 import { TEXT_PRESETS, applyTextPreset, getCurrentPresetId } from '../../utils/textPresets'
+import { estimateConvertedSize } from '../../utils/textToImage'
+import { showToast } from '../../store/useToastStore'
 
 interface Props {
   element: any
@@ -345,6 +347,29 @@ const TypeSettings: React.FC<Props> = ({ element }) => {
             </div>
           </div>
         )}
+
+        {/* P2-2 文字转图片: 把文字用 Canvas2D 渲染为 PNG, 适合需要固定视觉的场景 */}
+        <button
+          onClick={() => {
+            const state = useEditorStore.getState()
+            const sizeKB = estimateConvertedSize(element)
+            const ok = window.confirm(
+              `🖼️ 转图片\n\n将把当前文字元素用 Canvas2D 渲染为 PNG 图片(约 ${sizeKB} KB)。\n\n转换后:\n✅ 字体兼容 100% (所见即所得)\n❌ 不可再编辑文字内容/字号/字重\n\n是否继续？`
+            )
+            if (!ok) return
+            const success = state.convertTextToImage(element.id)
+            if (success) {
+              showToast('🖼️ 已转为图片 (不可再编辑,刷新会丢失,建议立即导出)', { type: 'warning', duration: 5000 })
+            } else {
+              showToast('❌ 转图片失败', { type: 'error', duration: 3000 })
+            }
+          }}
+          className="w-full mt-3 py-2 px-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-lg hover:shadow-md transition-all text-xs font-medium flex items-center justify-center gap-2"
+          title="把文字渲染为 PNG 图片, 避免字体兼容问题"
+        >
+          <span>🖼️</span>
+          <span>转图片（约 {estimateConvertedSize(element)} KB）</span>
+        </button>
       </div>
 
       {/* 描边开关 */}
@@ -401,6 +426,36 @@ const TypeSettings: React.FC<Props> = ({ element }) => {
                 element.strokeColorPerChar ? 'translate-x-4' : 'translate-x-0.5'
               }`} />
             </button>
+          </div>
+          {/* P2-6 文字特效: glow 外发光 / threeD 3D 立体 / emboss 雕印 */}
+          <div className="pt-2 border-t border-gray-200 space-y-2">
+            <div className="text-[10px] font-medium text-gray-500 mb-1">文字特效</div>
+            {([
+              { key: 'glow' as const, label: '✨ 外发光', desc: '霓虹效果' },
+              { key: 'threeD' as const, label: '🧊 3D 立体', desc: '复古海报' },
+              { key: 'emboss' as const, label: '🗿 雕印', desc: '凹凸质感' },
+            ]).map(({ key, label, desc }) => (
+              <div key={key} className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-gray-600">{label}</span>
+                  <span className="text-[10px] text-gray-400 ml-1.5">{desc}</span>
+                </div>
+                <button
+                  onClick={() => {
+                    const effects = { ...(element.effects || {}) }
+                    effects[key] = !effects[key]
+                    handleChangeAndSave('effects', effects)
+                  }}
+                  className={`relative w-9 h-5 rounded-full transition-colors ${
+                    element.effects?.[key] ? 'bg-gradient-to-r from-violet-500 to-pink-500' : 'bg-gray-300'
+                  }`}
+                >
+                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                    element.effects?.[key] ? 'translate-x-4' : 'translate-x-0.5'
+                  }`} />
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       )}

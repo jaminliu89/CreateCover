@@ -8,6 +8,7 @@ import { Type, Image, Square, Sparkles, Download, Undo2, Redo2, Save, FolderOpen
 import html2canvas from 'html2canvas'
 import { exportTemplate, downloadJSON, importTemplateFile } from '../utils/templateIO'
 import { composeEnhancedExport } from '../utils/exportBgEngine'
+import { downloadSVG, downloadWebPFromCanvas } from '../utils/exportFormats'
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024 // 10MB
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
@@ -266,6 +267,35 @@ const Toolbar: React.FC = () => {
     } finally { setExportLoading(false) }
   }
 
+  // D-1 SVG 矢量导出
+  const handleExportSVG = async () => {
+    setExportLoading(true)
+    showToast('🖌️ SVG 导出中...', { type: 'info', duration: 1500 })
+    setExportModal(false)
+    try {
+      const state = useEditorStore.getState()
+      downloadSVG(state.elements, state.ratio)
+      showToast('✅ SVG 导出成功！保留矢量文字', { type: 'success' })
+    } catch (error: any) {
+      showToast(`❌ SVG 导出失败：${error?.message || '未知错误'}`, { type: 'error', duration: 5000 })
+    } finally { setExportLoading(false) }
+  }
+
+  // D-1 WebP 轻量导出
+  const handleExportWebP = async () => {
+    setExportLoading(true)
+    showToast('🌐 WebP 导出中...', { type: 'info', duration: 1500 })
+    setExportModal(false)
+    try {
+      const canvasEl = document.getElementById('cover-canvas') as HTMLElement
+      if (!canvasEl) { showToast('❌ 未找到画布元素', { type: 'error' }); return }
+      await downloadWebPFromCanvas(canvasEl, 2)
+      showToast('✅ WebP 导出成功（比 PNG 小 ~30%）', { type: 'success' })
+    } catch (error: any) {
+      showToast(`❌ WebP 导出失败：${error?.message || '未知错误'}`, { type: 'error', duration: 5000 })
+    } finally { setExportLoading(false) }
+  }
+
   return (
     <header className="h-16 bg-white border-b border-gray-200 flex items-center px-6 gap-6 shadow-sm">
       {/* Logo区域 - 英文版 CoverForge Pro（参考图风格） */}
@@ -435,6 +465,38 @@ const Toolbar: React.FC = () => {
                     </div>
                   </div>
                 </button>
+
+                {/* D-1 SVG 矢量导出（保留文字可编辑） */}
+                <button
+                  onClick={handleExportSVG}
+                  className="w-full p-4 rounded-xl border-2 border-violet-200 hover:border-violet-400 bg-violet-50 hover:bg-violet-100 transition-all text-left"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-violet-400 to-indigo-500 flex items-center justify-center">
+                      <Download size={20} className="text-white" />
+                    </div>
+                    <div>
+                      <div className="font-semibold text-violet-800">🖌️ SVG 矢量</div>
+                      <div className="text-xs text-violet-600 mt-0.5">保留文字为可编辑矢量，设计师首选</div>
+                    </div>
+                  </div>
+                </button>
+
+                {/* D-1 WebP 轻量导出（比 PNG 小 ~30%） */}
+                <button
+                  onClick={handleExportWebP}
+                  className="w-full p-4 rounded-xl border-2 border-emerald-200 hover:border-emerald-400 bg-emerald-50 hover:bg-emerald-100 transition-all text-left"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center">
+                      <Download size={20} className="text-white" />
+                    </div>
+                    <div>
+                      <div className="font-semibold text-emerald-800">🌐 WebP 轻量</div>
+                      <div className="text-xs text-emerald-600 mt-0.5">比 PNG 小约 30%，Web 标准格式</div>
+                    </div>
+                  </div>
+                </button>
               </div>
 
               <button
@@ -473,6 +535,20 @@ const Toolbar: React.FC = () => {
         >
           <Maximize2 size={18} />
           <span className="font-medium">等比缩放</span>
+        </button>
+
+        {/* P2-1 AI 自动排版：本地算法 1-click 自动调字号/字重/字间距/行高/位置 */}
+        <button
+          onClick={() => {
+            const state = useEditorStore.getState()
+            const summary = state.autoLayout()
+            showToast(`🤖 AI 已重新排版: ${summary}`, { type: 'success', duration: 3000 })
+          }}
+          className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-pink-500 text-white rounded-xl hover:shadow-lg hover:scale-[1.02] transition-all"
+          title="AI 自动排版: 按文字密度/比例/层级 自动调字号/字重/字间距/行高/位置（保留内容/颜色/字体）"
+        >
+          <Sparkles size={18} />
+          <span className="font-medium">AI 排版</span>
         </button>
       </div>
 

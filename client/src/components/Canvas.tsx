@@ -3,6 +3,7 @@ import { useEditorStore, isBackgroundElement } from '../store/useEditorStore'
 import { addImageFromFile } from '../hooks/useKeyboardShortcuts'
 import ContextMenu, { type ContextMenuState } from './ContextMenu'
 import { FloatingTextToolbar } from './FloatingTextToolbar'
+import { GuideOverlay } from './GuideOverlay'
 
 const RATIO_SIZES: Record<string, { width: number; height: number }> = {
   '3:4': { width: 480, height: 640 },
@@ -530,7 +531,26 @@ const Canvas: React.FC = () => {
             // P1-8 字符级描边: 开启时外层不设 stroke,由内层 span 各自设独立颜色
             // 字符级模式下 strokeWidth 0 fallback 2px（用户开字符级描边就是要看效果,0px 没意义）
             WebkitTextStroke: (element.stroke && !element.strokeColorPerChar) ? `${element.strokeWidth || 0}px ${element.strokeColor}` : 'none',
-            textShadow: element.shadow ? '0 2px 8px rgba(0,0,0,0.5)' : 'none',
+            // P2-6 文字特效: text-shadow 多层组合, 优先级 effects > 默认阴影
+            textShadow: (() => {
+              const fx = element.effects || {}
+              const shadows: string[] = []
+              if (fx.glow) {
+                // 外发光（霓虹效果）— 用 currentColor 跟随文字色
+                shadows.push(`0 0 8px ${element.color || '#FF5E3A'}`, `0 0 16px ${element.color || '#FF5E3A'}`)
+              }
+              if (fx.threeD) {
+                // 3D 立体（复古海报）— 多层偏移暗色
+                shadows.push('1px 1px 0 #ddd', '2px 2px 0 #ccc', '3px 3px 0 #bbb', '4px 4px 0 #aaa')
+              }
+              if (fx.emboss) {
+                // 雕印（凹凸感）— 高光+暗影组合
+                shadows.push('-1px -1px 1px rgba(255,255,255,0.7)', '1px 1px 1px rgba(0,0,0,0.5)')
+              }
+              // 默认阴影（element.shadow 控制）
+              if (shadows.length === 0 && element.shadow) shadows.push('0 2px 8px rgba(0,0,0,0.5)')
+              return shadows.length > 0 ? shadows.join(', ') : 'none'
+            })(),
             backgroundColor: element.bg ? element.bgColor : 'transparent',
             padding: element.bg ? `${element.bgPadding}px ${element.bgPadding * 2}px` : 0,
             borderRadius: element.bg ? '8px' : 0,
@@ -819,6 +839,8 @@ const Canvas: React.FC = () => {
             {Math.round(Math.abs(snapGuides.dy))}px
           </div>
         )}
+        {/* 构图参考线叠加层（D-2）：开关+类型控制在右上角，纯视觉不进导出 */}
+        <GuideOverlay />
       </div>
       </div>{/* 画布视口缩放 wrapper 结束 */}
 
