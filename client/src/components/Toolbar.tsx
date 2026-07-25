@@ -4,9 +4,10 @@ import { showToast } from '../store/useToastStore'
 import TitleGenerator from './TitleGenerator'
 import { useMagicGenerate } from './MagicGenerate'
 import ProjectManager from './ProjectManager'
-import { Type, Image, Square, Sparkles, Download, Undo2, Redo2, Save, FolderOpen, Package, Upload, Zap } from 'lucide-react'
+import { Type, Image, Square, Sparkles, Download, Undo2, Redo2, Save, FolderOpen, Package, Upload, Zap, Check, Maximize2 } from 'lucide-react'
 import html2canvas from 'html2canvas'
 import { exportTemplate, downloadJSON, importTemplateFile } from '../utils/templateIO'
+import { composeEnhancedExport } from '../utils/exportBgEngine'
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024 // 10MB
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
@@ -19,9 +20,12 @@ const Toolbar: React.FC = () => {
   const [projectModal, setProjectModal] = useState<'save' | 'open' | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [exportLoading, setExportLoading] = useState(false)
+  const [exportModal, setExportModal] = useState(false)
   // 打包模板：用户输入名字的 inline modal
   const [nameModalOpen, setNameModalOpen] = useState(false)
   const [nameInput, setNameInput] = useState('')
+  // P1-3 等比缩放字号: 4 选 1 选目标比例的 inline modal
+  const [showAdaptModal, setShowAdaptModal] = useState(false)
   const handleConfirmName = () => {
     const state = useEditorStore.getState()
     const name = nameInput.trim() || `模板 ${new Date().toLocaleDateString()}`
@@ -199,35 +203,25 @@ const Toolbar: React.FC = () => {
     e.target.value = ''
   }
 
-  // 导出封面
+  // 标准导出（html2canvas）
   const handleExport = async () => {
     setExportLoading(true)
-    showToast('📸 正在导出，请稍候...', { type: 'info', duration: 1500 })
+    showToast('📸 标准导出中...', { type: 'info', duration: 1500 })
+    setExportModal(false)
     try {
-      // 用 id 精确选择（替代 querySelector，class 选择器会被 Tailwind 编译修改导致不匹配）
       const canvasElement = document.getElementById('cover-canvas') as HTMLElement
-      if (!canvasElement) {
-        showToast('❌ 未找到画布元素', { type: 'error' })
-        return
-      }
+      if (!canvasElement) { showToast('❌ 未找到画布元素', { type: 'error' }); return }
 
       const canvas = await html2canvas(canvasElement, {
         scale: 2,
-        useCORS: true,
-        allowTaint: true,  // 允许脏 canvas（避免 cross-origin taint 错误）
-        backgroundColor: '#ffffff',
-        logging: false,
-        imageTimeout: 20000,  // 图片加载 20s 超时
-        width: canvasElement.offsetWidth,
-        height: canvasElement.offsetHeight,
-        // 关键：clone 阶段去掉 box-shadow + 强制 overflow:hidden
-        // 避免 shadow-2xl 的阴影扩散 + overflow:visible 元素溢出导致白边
+        useCORS: true, allowTaint: true, backgroundColor: '#ffffff',
+        logging: false, imageTimeout: 20000,
+        width: canvasElement.offsetWidth, height: canvasElement.offsetHeight,
         onclone: (_, clonedCanvas) => {
           clonedCanvas.style.boxShadow = 'none'
           clonedCanvas.style.overflow = 'hidden'
         },
       })
-
       const link = document.createElement('a')
       link.download = `封面_${ratio}_${Date.now()}.png`
       link.href = canvas.toDataURL('image/png')
@@ -236,9 +230,40 @@ const Toolbar: React.FC = () => {
     } catch (error: any) {
       console.error('导出失败:', error)
       showToast(`❌ 导出失败：${error?.message || '未知错误'}`, { type: 'error', duration: 5000 })
-    } finally {
-      setExportLoading(false)
-    }
+    } finally { setExportLoading(false) }
+  }
+
+  // 增强导出（Canvas2D 背景引擎 + html2canvas 元素层）
+  const handleEnhancedExport = async () => {
+    setExportLoading(true)
+    showToast('💎 增强导出中...', { type: 'info', duration: 2000 })
+    setExportModal(false)
+    try {
+      const canvasEl = document.getElementById('cover-canvas') as HTMLElement
+      if (!canvasEl) { showToast('❌ 未找到画布元素', { type: 'error' }); return }
+
+      const bgEl = canvasEl.querySelector('[data-element-id]') as HTMLElement
+      const bgStyle = bgEl ? getComputedStyle(bgEl).background : undefined
+
+      const RATIO_SIZES: Record<string, { width: number; height: number }> = {
+        '3:4': { width: 480, height: 640 }, '1:1': { width: 540, height: 540 },
+        '9:16': { width: 405, height: 720 }, '16:9': { width: 720, height: 405 },
+      }
+      const sz = RATIO_SIZES[ratio] || { width: 480, height: 640 }
+
+      const dataUrl = await composeEnhancedExport(canvasEl, sz.width, sz.height, bgStyle, 2)
+
+      const link = document.createElement('a')
+      link.download = `封面_${ratio}_增强_${Date.now()}.png`
+      link.href = dataUrl
+      link.click()
+      showToast('✅ 增强导出成功！', { type: 'success' })
+    } catch (error: any) {
+      console.error('增强导出失败:', error)
+      showToast('💎 增强导出不可用，降级到标准模式', { type: 'warning', duration: 3000 })
+      handleExport()
+      return
+    } finally { setExportLoading(false) }
   }
 
   return (
@@ -361,13 +386,66 @@ const Toolbar: React.FC = () => {
         </button>
 
         <button
-          onClick={handleExport}
+          onClick={() => setExportModal(true)}
           disabled={exportLoading}
           className="flex items-center gap-2 px-5 py-2.5 bg-gray-800 text-white rounded-xl hover:bg-gray-900 hover:shadow-lg transition-all"
         >
           <Download size={18} />
           <span className="font-medium">{exportLoading ? '导出中...' : '导出封面'}</span>
         </button>
+
+        {exportModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setExportModal(false)}>
+            <div
+              className="bg-white rounded-2xl shadow-2xl p-6 w-[400px] max-w-[90vw]"
+              onClick={e => e.stopPropagation()}
+            >
+              <h3 className="text-lg font-bold mb-4 text-gray-800 flex items-center gap-2">
+                <Download size={20} className="text-orange-500" />
+                导出封面
+              </h3>
+
+              <div className="space-y-3">
+                <button
+                  onClick={handleExport}
+                  className="w-full p-4 rounded-xl border-2 border-gray-200 hover:border-orange-400 bg-gray-50 hover:bg-orange-50 transition-all text-left"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-gray-200 flex items-center justify-center">
+                      <Download size={20} className="text-gray-600" />
+                    </div>
+                    <div>
+                      <div className="font-semibold text-gray-800">📦 标准模式</div>
+                      <div className="text-xs text-gray-500 mt-0.5">html2canvas 渲染，兼容性最好</div>
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={handleEnhancedExport}
+                  className="w-full p-4 rounded-xl border-2 border-orange-300 hover:border-orange-500 bg-orange-50 hover:bg-orange-100 transition-all text-left"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-400 to-pink-500 flex items-center justify-center">
+                      <Check size={20} className="text-white" />
+                    </div>
+                    <div>
+                      <div className="font-semibold text-orange-800">💎 增强模式（推荐）</div>
+                      <div className="text-xs text-orange-600 mt-0.5">Canvas2D 渐变引擎，颜色更准确</div>
+                    </div>
+                  </div>
+                </button>
+              </div>
+
+              <button
+                onClick={() => setExportModal(false)}
+                className="mt-4 w-full py-2.5 text-sm text-gray-500 hover:text-gray-700 rounded-xl hover:bg-gray-100 transition-all"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        )}
 
         <button
           onClick={handlePackageTemplate}
@@ -385,6 +463,16 @@ const Toolbar: React.FC = () => {
         >
           <Upload size={18} />
           <span className="font-medium">导入模板</span>
+        </button>
+
+        {/* P1-3 等比缩放字号：弹 4 选 1 选目标比例,按短边比例缩放所有文字字号 */}
+        <button
+          onClick={() => setShowAdaptModal(true)}
+          className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 text-white rounded-xl hover:bg-violet-700 hover:shadow-lg transition-all"
+          title="按目标比例短边缩放所有文字字号（仅改 fontSize，字重/字间距/行高不变）"
+        >
+          <Maximize2 size={18} />
+          <span className="font-medium">等比缩放</span>
         </button>
       </div>
 
@@ -415,6 +503,86 @@ const Toolbar: React.FC = () => {
       {projectModal && (
         <ProjectManager mode={projectModal} onClose={() => setProjectModal(null)} />
       )}
+
+      {/* P1-3 等比缩放：选目标比例 4 选 1 modal */}
+      {showAdaptModal && (() => {
+        const ratios: Array<'1:1' | '3:4' | '9:16' | '16:9'> = ['1:1', '3:4', '9:16', '16:9']
+        const ratioInfo: Record<string, { short: number; emoji: string; label: string }> = {
+          '1:1': { short: 540, emoji: '⬜', label: '短边 540（最大字号）' },
+          '3:4': { short: 480, emoji: '🟦', label: '短边 480' },
+          '9:16': { short: 405, emoji: '📱', label: '短边 405' },
+          '16:9': { short: 405, emoji: '🎬', label: '短边 405' },
+        }
+        const currentRatio = useEditorStore.getState().ratio
+        return (
+          <div
+            className="fixed inset-0 z-[9997] flex items-center justify-center"
+            style={{ background: 'rgba(0,0,0,0.5)' }}
+            onClick={() => setShowAdaptModal(false)}
+          >
+            <div
+              className="bg-white rounded-2xl shadow-2xl w-[420px] overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6 border-b border-gray-100">
+                <h3 className="text-lg font-bold text-gray-900">📐 等比缩放字号</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  当前比例 <span className="font-semibold text-orange-600">{currentRatio}</span>
+                  ，选目标比例后,按"短边比例"缩放所有文字字号。
+                  <br />
+                  <span className="text-xs text-gray-400">仅改 fontSize,字重/字间距/行高/位置不变。</span>
+                </p>
+              </div>
+              <div className="p-4 grid grid-cols-2 gap-2">
+                {ratios.map(r => (
+                  <button
+                    key={r}
+                    onClick={() => {
+                      const state = useEditorStore.getState()
+                      if (r === currentRatio) {
+                        showToast('⚠️ 目标比例与当前比例相同,无需缩放', { type: 'info', duration: 2000 })
+                        setShowAdaptModal(false)
+                        return
+                      }
+                      const oldS = ratioInfo[currentRatio].short
+                      const newS = ratioInfo[r].short
+                      const scale = (newS / oldS).toFixed(2)
+                      const ok = window.confirm(
+                        `将按 ${scale}x 缩放所有文字字号 (${oldS}→${newS} 短边)。\n\n此操作会修改所有文字元素,是否继续？`
+                      )
+                      if (ok) {
+                        state.adaptFontSizeToRatio(currentRatio, r)
+                        showToast(`✅ 已按 ${scale}x 缩放所有字号`, { type: 'success', duration: 2000 })
+                      }
+                      setShowAdaptModal(false)
+                    }}
+                    className={`p-3 rounded-xl text-left transition-all ${
+                      r === currentRatio
+                        ? 'bg-orange-50 border-2 border-orange-300'
+                        : 'bg-gray-50 hover:bg-violet-50 border-2 border-transparent hover:border-violet-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{ratioInfo[r].emoji}</span>
+                      <span className="font-bold text-gray-900">{r}</span>
+                      {r === currentRatio && <span className="text-[10px] bg-orange-500 text-white px-1.5 py-0.5 rounded">当前</span>}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">{ratioInfo[r].label}</div>
+                  </button>
+                ))}
+              </div>
+              <div className="p-4 border-t border-gray-100 flex justify-end">
+                <button
+                  onClick={() => setShowAdaptModal(false)}
+                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm"
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Toast 提示 - 全局 useToastStore 在 App.tsx 统一挂载 */}
 

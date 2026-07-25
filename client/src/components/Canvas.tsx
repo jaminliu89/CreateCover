@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect, useCallback } from 'react'
 import { useEditorStore, isBackgroundElement } from '../store/useEditorStore'
 import { addImageFromFile } from '../hooks/useKeyboardShortcuts'
 import ContextMenu, { type ContextMenuState } from './ContextMenu'
+import { FloatingTextToolbar } from './FloatingTextToolbar'
 
 const RATIO_SIZES: Record<string, { width: number; height: number }> = {
   '3:4': { width: 480, height: 640 },
@@ -27,6 +28,10 @@ const Canvas: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const [editContent, setEditContent] = useState('')
+  // 文字编辑：保存进入编辑前的原值，Esc 时还原（P0-5 2026-07-25）
+  const editOriginalContentRef = useRef('')
+  // 文字元素外层 wrapper ref 集合（P0-1 2026-07-25），用于 FloatingTextToolbar 计算位置
+  const textElementRefs = useRef<Map<string, HTMLElement>>(new Map())
   // 右键菜单状态（null = 关闭）
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   // 对齐辅助线（Figma 风格）：拖动时显示
@@ -46,6 +51,7 @@ const Canvas: React.FC = () => {
     startAngle: number  // 旋转开始时鼠标与中心连线的角度
     elX: number
     elY: number
+    pendingRotate?: boolean  // 旋转手柄防误触：用户必须移动 ≥5px 才激活
   }>({
     mode: null, startMouseX: 0, startMouseY: 0,
     startWidth: 0, startHeight: 0, startFontSize: 0,
@@ -64,18 +70,8 @@ const Canvas: React.FC = () => {
     multi?: { id: string; elemStartX: number; elemStartY: number }[]  // 多选批量拖动
   }>({ active: false, id: null, startX: 0, startY: 0, elemStartX: 0, elemStartY: 0, el: null })
 
-  const rafRef = useRef<number | null>(null)
-  const pendingPos = useRef<{ x: number; y: number } | null>(null)
   // 滚轮缩放：debounce 200ms 后才 saveHistory（避免每次滚都入栈）
   const wheelDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const flushStoreUpdate = useCallback(() => {
-    const d = dragRef.current
-    if (!d.id || !pendingPos.current) return
-    updateElement(d.id, { x: pendingPos.current.x, y: pendingPos.current.y })
-    pendingPos.current = null
-    rafRef.current = null
-  }, [updateElement])
 
   // 计算对齐辅助线：当前元素 (cx, cy) 接近画布/其他元素的哪个位置？
   // 阈值 2.5%（画布宽度的 2.5%）。返回吸附后的位置 + 辅助线 + 距离气泡
@@ -84,8 +80,9 @@ const Canvas: React.FC = () => {
     // 候选点：画布中线 + 四边
     const verticalCandidates: number[] = [0, 50, 100]
     const horizontalCandidates: number[] = [0, 50, 100]
-    // 其他元素的中心点（背景元素排除：它永远在最底层，不参与对齐）
-    for (const el of elements) {
+    // 直接从 store 读最新元素列表（不依赖闭包，避免拖拽时每帧重建）
+    const allElems = useEditorStore.getState().elements
+    for (const el of allElems) {
       if (el.id === selfId) continue
       if (isBackgroundElement(el)) continue
       verticalCandidates.push(el.x)
@@ -125,45 +122,38 @@ const Canvas: React.FC = () => {
         dy: hGuide !== null ? bestDy * (RATIO_SIZES[ratio]?.height || 720) / 100 : null,
       },
     }
-  }, [elements, ratio])
+  }, [ratio])
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
-    // 缩放/旋转手柄拖动
     const h = handleRef.current
     const d = dragRef.current
-    // 关键 bug 修复：如果拖拽已激活，跳过 resize（防止意外触发了手柄导致文字挤压）
-    // 确保：拖动文字框体 → 只移动位置；拖动手柄 → 才缩放
-    if (h.mode && d.active) return
+
+    if (d.active) console.log(`[DIAG] mousemove dragActive=${d.active} hMode=${h.mode} id=${d.id}`)
+
     if (h.mode && canvasRef.current) {
       const rect = canvasRef.current.getBoundingClientRect()
-      const el = elements.find(x => x.id === selectedId)
+      // 直接从 store 读最新值，避免 useCallback 闭包过期
+      const store = useEditorStore.getState()
+      const el = store.elements.find(x => x.id === store.selectedId)
       if (!el) return
       // 元素中心点屏幕坐标
       const cx = rect.left + (el.x / 100) * rect.width
       const cy = rect.top + (el.y / 100) * rect.height
 
       if (h.mode === 'rotate') {
-        // 锁定拦截
         if (el.locked) return
-        // 计算当前鼠标与中心连线角度，差值累加到 startRotation
         const curAngle = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI
         const deltaAngle = curAngle - h.startAngle
         const newRotation = h.startRotation + deltaAngle
-        if (h.corner === 'tl') {
-          // 起点设了一个伪 corner 标识旋转（我们用同一个 corner 字段标识 mode）
-        }
-        updateElement(selectedId, { rotation: Math.round(newRotation) } as any)
+        store.updateElement(store.selectedId!, { rotation: Math.round(newRotation) } as any)
         return
       }
 
       if (h.mode === 'resize' && h.corner) {
-        // 锁定拦截
         if (el.locked) return
-        // 灵敏度 ×3：拖 100px ≈ 300% 缩放（让用户更容易放大到任意大）
-        const dx = ((e.clientX - h.startMouseX) / rect.width) * 100 * 3
-        const dy = ((e.clientY - h.startMouseY) / rect.height) * 100 * 3
+        const dx = ((e.clientX - h.startMouseX) / rect.width) * 100 * 2
+        const dy = ((e.clientY - h.startMouseY) / rect.height) * 100 * 2
         if (el.type === 'text') {
-          // 文字缩放 = 改 fontSize（位置不动）
           let scale = 1
           if (h.corner === 'br') scale = 1 + (dx + dy) / 2 / 10
           else if (h.corner === 'tl') scale = 1 + (-dx - dy) / 2 / 10
@@ -173,11 +163,9 @@ const Canvas: React.FC = () => {
           else if (h.corner === 'b' || h.corner === 't') scale = 1 + dy / 10 * (h.corner === 't' ? -1 : 1)
           scale = Math.max(0.3, Math.min(5, scale))
           const newFontSize = Math.max(8, Math.round(h.startFontSize * scale))
-          updateElement(selectedId, { fontSize: newFontSize } as any)
+          store.updateElement(store.selectedId!, { fontSize: newFontSize } as any)
         } else {
-          // 形状/图片缩放：锚定对边（Photoshop/Figma 标准，对边不动中心随之偏移）
-          let newW = h.startWidth
-          let newH = h.startHeight
+          let newW = h.startWidth, newH = h.startHeight
           if (h.corner === 'br') { newW = h.startWidth + dx; newH = h.startHeight + dy }
           else if (h.corner === 'tl') { newW = h.startWidth - dx; newH = h.startHeight - dy }
           else if (h.corner === 'tr') { newW = h.startWidth + dx; newH = h.startHeight - dy }
@@ -188,28 +176,28 @@ const Canvas: React.FC = () => {
           else if (h.corner === 't') { newW = h.startWidth; newH = h.startHeight - dy }
           newW = Math.max(2, Math.min(10000, newW))
           newH = Math.max(2, Math.min(10000, newH))
-          // 锚定对边：中心偏移 = dx/2, dy/2（对边不动，符合 Figma/PS 直觉）
           const newX = Math.max(0, Math.min(100, h.elX + dx / 2))
           const newY = Math.max(0, Math.min(100, h.elY + dy / 2))
-          updateElement(selectedId, { width: newW, height: newH, x: newX, y: newY } as any)
+          store.updateElement(store.selectedId!, { width: Math.round(newW), height: Math.round(newH), x: newX, y: newY } as any)
         }
         return
       }
     }
 
-    // 元素拖动（d 已在函数开头声明）
+    // ── 元素拖动：直接更新 store ──
     if (!d.active || !d.id || !containerRef.current) return
 
     const size = RATIO_SIZES[ratio] || { width: 405, height: 720 }
     const deltaX = ((e.clientX - d.startX) / size.width) * 100
     const deltaY = ((e.clientY - d.startY) / size.height) * 100
 
-    // 多选批量拖动：所有选中元素统一偏移
+    // 多选批量拖动
     if (d.multi && d.multi.length > 1) {
+      const st = useEditorStore.getState()
       for (const m of d.multi) {
         const nx = Math.max(5, Math.min(95, m.elemStartX + deltaX))
         const ny = Math.max(5, Math.min(95, m.elemStartY + deltaY))
-        updateElement(m.id, { x: nx, y: ny } as any)
+        st.updateElement(m.id, { x: nx, y: ny } as any)
       }
       return
     }
@@ -217,21 +205,14 @@ const Canvas: React.FC = () => {
     let newX = Math.max(5, Math.min(95, d.elemStartX + deltaX))
     let newY = Math.max(5, Math.min(95, d.elemStartY + deltaY))
 
-    // 计算对齐吸附
     const snap = computeSnap(newX, newY, d.id)
     newX = snap.x
     newY = snap.y
     setSnapGuides(snap.guides)
 
-    if (d.el) {
-      d.el.style.left = `${newX}%`
-      d.el.style.top = `${newY}%`
-    }
-    pendingPos.current = { x: newX, y: newY }
-    if (rafRef.current === null) {
-      rafRef.current = requestAnimationFrame(flushStoreUpdate)
-    }
-  }, [ratio, flushStoreUpdate, computeSnap, selectedId, elements])
+    useEditorStore.getState().updateElement(d.id, { x: Math.round(newX * 100) / 100, y: Math.round(newY * 100) / 100 } as any)
+    console.log(`[DIAG] updatePos id=${d.id?.slice(0,12)} startX=${(d.startX??0).toFixed(0)} cx=${(e.clientX??0).toFixed(0)} deltaX=${deltaX.toFixed(2)} newX=${newX.toFixed(2)} elemStartX=${(d.elemStartX??0).toFixed(1)}`)
+  }, [ratio, updateElement])
 
   // 滚轮行为（Figma/PS 行业惯例）：
   //   默认：缩放画布视口
@@ -269,16 +250,9 @@ const Canvas: React.FC = () => {
   const handleMouseUp = useCallback(() => {
     // 元素拖动结束
     if (dragRef.current.active) {
+      // 多选批量拖动结束：清空 multi
       if (dragRef.current.multi && dragRef.current.multi.length > 1) {
-        // 多选批量拖动结束：一次性 saveHistory
         dragRef.current.multi = undefined
-      } else if (pendingPos.current && dragRef.current.id) {
-        updateElement(dragRef.current.id, pendingPos.current)
-        pendingPos.current = null
-      }
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current)
-        rafRef.current = null
       }
       dragRef.current.active = false
       dragRef.current.id = null
@@ -293,7 +267,7 @@ const Canvas: React.FC = () => {
       handleRef.current.mode = null
       useEditorStore.getState().saveHistory()
     }
-  }, [elements, selectMany, clearMultiSelect, updateElement])
+  }, [selectMany, clearMultiSelect, updateElement])
 
   useEffect(() => {
     window.addEventListener('mousemove', handleMouseMove)
@@ -340,6 +314,8 @@ const Canvas: React.FC = () => {
     }
     const element = elements.find(el => el.id === id)
     if (!element) return
+    console.log(`[DIAG] mousedown id=${id} type=${element.type} x=${element.x} y=${element.y} selId=${selectedId}`)
+    console.log(`[DIAG] dragRef active=${dragRef.current.active} handleRef mode=${handleRef.current.mode}`)
 
     // 背景元素：只允许选中改颜色，**禁止拖动**（位置永远锁死在最底层）
     if (isBackgroundElement(element)) return
@@ -421,6 +397,8 @@ const Canvas: React.FC = () => {
 
   const handleDoubleClick = (e: React.MouseEvent, id: string, content: string) => {
     e.stopPropagation()
+    // P0-5 Esc 还原：进入编辑前先把原值存到 ref，Esc 时拿这个值回退
+    editOriginalContentRef.current = content
     setEditingElement(id)
     setEditContent(content)
   }
@@ -441,6 +419,13 @@ const Canvas: React.FC = () => {
       handleTextBlur()
     }
     if (e.key === 'Escape') {
+      // P0-5 Esc 还原：把内容回退到进入编辑前的原值，**不保存当前编辑**
+      // 行为对齐 Figma/Sketch：Esc = 放弃改动，Shift+Enter = 提交改动
+      if (editingElementId) {
+        setEditContent(editOriginalContentRef.current)
+        updateElement(editingElementId, { content: editOriginalContentRef.current })
+        useEditorStore.getState().saveHistory()
+      }
       setEditingElement(null)
     }
   }
@@ -486,6 +471,10 @@ const Canvas: React.FC = () => {
             textDecoration: element.underline ? 'underline' : 'none',
             minWidth: '100px',
             minHeight: '40px',
+            // 排版扩展：让编辑态和静态态视觉一致（用户改完能直接看到效果）
+            lineHeight: element.lineHeight ?? 1.2,
+            letterSpacing: `${element.letterSpacing ?? 0}px`,
+            ...(element.writingMode === 'vertical-rl' ? { writingMode: 'vertical-rl' as const } : {}),
           }}
           autoFocus
         />
@@ -495,6 +484,11 @@ const Canvas: React.FC = () => {
     return (
       <div
         key={element.id}
+        ref={(el) => {
+          // P0-1 浮动工具栏用: 收集文字 wrapper DOM 引用,工具栏按其 bbox 定位
+          if (el) textElementRefs.current.set(element.id, el)
+          else textElementRefs.current.delete(element.id)
+        }}
         data-element-id={element.id}
         className={`absolute cursor-pointer select-none ${selectedStyle(element.id)}`}
         style={{
@@ -502,6 +496,11 @@ const Canvas: React.FC = () => {
           top: `${element.y}%`,
           transform: `translate(-50%, -50%) rotate(${element.rotation}deg) scaleX(${element.flipH ? -1 : 1}) scaleY(${element.flipV ? -1 : 1})`,
           opacity: element.opacity,
+          // 修 root cause: text 外层 div 必须显式 width，否则向右拖到 50% 后
+          // available-width(contain - center) < max-content 时会被 shrink-to-fit 压扁，
+          // 5 个 48px 字装不进 100px 容器 → wordBreak 强制每字一行 → 视觉上"竖排"
+          width: 'max-content',
+          maxWidth: '95%',
         }}
         onClick={(e) => handleElementClick(e, element.id)}
         onMouseDown={(e) => handleElementMouseDown(e, element.id)}
@@ -517,10 +516,20 @@ const Canvas: React.FC = () => {
             fontWeight: element.fontWeight,
             fontFamily: element.fontFamily,
             color: element.color,
+            // P1-2 渐变文字: background + background-clip:text (存在时优先于 color)
+            ...(element.colorGradient ? {
+              backgroundImage: `linear-gradient(${element.colorGradient.angle}deg, ${element.colorGradient.from}, ${element.colorGradient.to})`,
+              WebkitBackgroundClip: 'text',
+              backgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              color: 'transparent',
+            } : {}),
             textAlign: element.textAlign,
             fontStyle: element.italic ? 'italic' : 'normal',
             textDecoration: element.underline ? 'underline' : 'none',
-            WebkitTextStroke: element.stroke ? `${element.strokeWidth}px ${element.strokeColor}` : 'none',
+            // P1-8 字符级描边: 开启时外层不设 stroke,由内层 span 各自设独立颜色
+            // 字符级模式下 strokeWidth 0 fallback 2px（用户开字符级描边就是要看效果,0px 没意义）
+            WebkitTextStroke: (element.stroke && !element.strokeColorPerChar) ? `${element.strokeWidth || 0}px ${element.strokeColor}` : 'none',
             textShadow: element.shadow ? '0 2px 8px rgba(0,0,0,0.5)' : 'none',
             backgroundColor: element.bg ? element.bgColor : 'transparent',
             padding: element.bg ? `${element.bgPadding}px ${element.bgPadding * 2}px` : 0,
@@ -529,13 +538,34 @@ const Canvas: React.FC = () => {
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
             maxWidth: '90vw',
-            lineHeight: 1.2,
+            // P0-2/3 文字排版扩展：行高 / 字间距 / 横排/竖排（默认 horizontal-tb = 不写）
+            lineHeight: element.lineHeight ?? 1.2,
+            letterSpacing: `${element.letterSpacing ?? 0}px`,
+            ...(element.writingMode === 'vertical-rl' ? { writingMode: 'vertical-rl' as const } : {}),
             pointerEvents: 'none',
           }}
         >
-          {element.content}
+          {/* P1-8 字符级描边: 拆字符每个 span 独立 stroke 颜色（彩虹标题效果） */}
+          {element.stroke && element.strokeColorPerChar ? (
+            (() => {
+              // 5 色调色板循环（按字符 index % 5 切换）
+              const palette = ['#FF5E3A', '#FF9900', '#FFD700', '#FF3366', '#9B59FF']
+              const chars = (element.content || '').split('')
+              return chars.map((ch, i) => (
+                <span
+                  key={i}
+                  style={{
+                    // 字符级描边模式下 strokeWidth 0 fallback 2px,确保用户开启时能立即看到效果
+                    WebkitTextStroke: `${element.strokeWidth || 2}px ${palette[i % palette.length]}`,
+                  }}
+                >
+                  {ch === '\n' ? <br /> : ch}
+                </span>
+              ))
+            })()
+          ) : element.content}
         </div>
-        {isSingle(element.id) && !isBackgroundElement(element) && (
+        {isSingle(element.id) && !isBackgroundElement(element) && element.type !== 'text' && (
           <TransformHandles element={element} handleRef={handleRef} />
         )}
       </div>
@@ -593,6 +623,10 @@ const Canvas: React.FC = () => {
           top: `${element.y}%`,
           transform: `translate(-50%, -50%) rotate(${element.rotation}deg) scaleX(${element.flipH ? -1 : 1}) scaleY(${element.flipV ? -1 : 1})`,
           opacity: element.opacity,
+          // 修 root cause: image 外层 div 必须显式 width，否则向右拖时
+          // 外层被 shrink-to-fit 压扁，<img width: ${element.width}%> 跟着父容器变窄
+          // → 视觉上"图片缩小"。和 shape 元素 (line 614) 保持一致
+          width: `${element.width}%`,
         }}
         onClick={(e) => handleElementClick(e, element.id)}
         onMouseDown={(e) => handleElementMouseDown(e, element.id)}
@@ -703,6 +737,18 @@ const Canvas: React.FC = () => {
           if (element.type === 'shape') return renderShapeElement(element)
           return null
         })}
+
+        {/* 调试叠层：显示当前拖拽状态（生产环境可删） */}
+        <div style={{
+          position: 'absolute', bottom: 4, left: 4,
+          background: 'rgba(0,0,0,0.8)', color: '#0f0',
+          fontSize: 11, fontFamily: 'monospace',
+          padding: '4px 8px', borderRadius: 4, zIndex: 99999,
+          pointerEvents: 'none', whiteSpace: 'pre-wrap',
+          maxWidth: 300,
+        }}>
+          {'drag:' + String(dragRef.current.active) + ' id:' + (dragRef.current.id?.slice(0,12)??'') + ' hM:' + (handleRef.current.mode ?? 'n')}
+        </div>
 
         {elements.length === 0 && (
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
@@ -819,6 +865,19 @@ const Canvas: React.FC = () => {
       </div>
     </main>
 
+      {/* P0-1 就地浮动工具栏：选中文字（非编辑态）时浮在元素正上方,1-click 调节字号/横排竖排 */}
+      {!editingElementId && selectedId && (() => {
+        const sel = elements.find(e => e.id === selectedId)
+        if (!sel || sel.type !== 'text') return null
+        return (
+          <FloatingTextToolbar
+            element={sel}
+            onUpdate={(patch) => updateElement(selectedId, patch)}
+            containerEl={textElementRefs.current.get(selectedId) || null}
+          />
+        )
+      })()}
+
       {/* 右键菜单 — 通过 Portal 渲染到 body，避开任何 overflow/transform 限制 */}
       <ContextMenu state={contextMenu} onClose={() => setContextMenu(null)} />
     </>
@@ -847,24 +906,12 @@ const TransformHandles: React.FC<{ element: any; handleRef: React.MutableRefObje
     }
   }
 
-  // 起始旋转
+  // 旋转：去掉 onMouseDown 拦截，点击旋转手柄等同于点击元素（拖拽移动）
+  // 用户通过属性面板的旋转滑块来旋转，不再通过拖拽手柄
   const startRotate = (e: React.MouseEvent) => {
-    e.stopPropagation()
     e.preventDefault()
-    const target = e.currentTarget.closest('[data-element-id]') as HTMLElement
-    const rect = target.getBoundingClientRect()
-    const cx = rect.left + rect.width / 2
-    const cy = rect.top + rect.height / 2
-    const startAngle = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI
-    handleRef.current = {
-      mode: 'rotate',
-      startMouseX: e.clientX,
-      startMouseY: e.clientY,
-      startWidth: 0, startHeight: 0, startFontSize: 0,
-      startRotation: (element as any).rotation || 0,
-      startAngle,
-      elX: element.x, elY: element.y,
-    }
+    // 不做 stopPropagation，让事件冒泡到元素本体触发拖拽
+    // 旋转功能由 PropertiesPanel 的旋转滑块提供
   }
 
   // 水平翻转（真·镜像 scaleX=-1，不动 rotation）

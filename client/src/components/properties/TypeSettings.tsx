@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useEditorStore } from '../../store/useEditorStore'
 import { AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline } from 'lucide-react'
 import LayerControls from './LayerControls'
+import { TEXT_PRESETS, applyTextPreset, getCurrentPresetId } from '../../utils/textPresets'
 
 interface Props {
   element: any
@@ -44,6 +45,44 @@ const TypeSettings: React.FC<Props> = ({ element }) => {
     <div className="space-y-5">
       {/* 图层控制 */}
       <LayerControls elementId={element.id} />
+
+      {/* 文字预设（P1-1 2026-07-25）— 12 个常见场景一键套用 */}
+      <div>
+        <label className="block text-xs font-medium text-gray-700 mb-2 flex items-center justify-between">
+          <span>文字预设</span>
+          <span className="text-[10px] text-gray-400 font-normal">12 种场景</span>
+        </label>
+        <div className="grid grid-cols-3 gap-1.5">
+          {TEXT_PRESETS.map(preset => {
+            const active = getCurrentPresetId(element) === preset.id
+            return (
+              <button
+                key={preset.id}
+                onClick={() => {
+                  const patch = applyTextPreset(preset.id)
+                  if (Object.keys(patch).length > 0) {
+                    updateElement(element.id, patch)
+                    setLocalSize(preset.fontSize)  // 同步字号 slider
+                    useEditorStore.getState().saveHistory()
+                  }
+                }}
+                title={`${preset.name} · ${preset.description}`}
+                className={`py-1.5 px-1.5 rounded-lg transition-all flex flex-col items-center gap-0.5 ${
+                  active
+                    ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-md'
+                    : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200'
+                }`}
+              >
+                <span className="text-base leading-none">{preset.icon}</span>
+                <span className="text-[10px] font-medium leading-none">{preset.name}</span>
+                <span className={`text-[9px] leading-none tabular-nums ${active ? 'text-white/80' : 'text-gray-400'}`}>
+                  {preset.fontSize}px
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
 
       {/* 字号 */}
       <div>
@@ -115,6 +154,77 @@ const TypeSettings: React.FC<Props> = ({ element }) => {
         </div>
       </div>
 
+      {/* 文字排版（P0-2/3 2026-07-25）— 行高/字间距/横排竖排切换 */}
+      <div>
+        <label className="block text-xs font-medium text-gray-700 mb-2">排版</label>
+
+        {/* 行高 slider */}
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[11px] text-gray-500">行高</span>
+            <span className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] font-bold text-gray-600 tabular-nums">
+              {(element.lineHeight ?? 1.2).toFixed(1)}
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0.8}
+            max={2.5}
+            step={0.1}
+            value={element.lineHeight ?? 1.2}
+            onChange={(e) => handleChange('lineHeight', Number(e.target.value))}
+            onMouseUp={() => useEditorStore.getState().saveHistory()}
+            className="w-full accent-orange-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+          />
+        </div>
+
+        {/* 字间距 slider */}
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[11px] text-gray-500">字间距</span>
+            <span className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] font-bold text-gray-600 tabular-nums">
+              {element.letterSpacing ?? 0}px
+            </span>
+          </div>
+          <input
+            type="range"
+            min={-5}
+            max={30}
+            step={1}
+            value={element.letterSpacing ?? 0}
+            onChange={(e) => handleChange('letterSpacing', Number(e.target.value))}
+            onMouseUp={() => useEditorStore.getState().saveHistory()}
+            className="w-full accent-orange-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+          />
+        </div>
+
+        {/* 横排/竖排切换 */}
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            onClick={() => handleChangeAndSave('writingMode', 'horizontal-tb')}
+            className={`py-1.5 text-xs rounded-lg transition-all flex items-center justify-center gap-1 ${
+              (element.writingMode ?? 'horizontal-tb') === 'horizontal-tb'
+                ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-sm'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            <span className="text-sm leading-none">A→</span>
+            <span>横排</span>
+          </button>
+          <button
+            onClick={() => handleChangeAndSave('writingMode', 'vertical-rl')}
+            className={`py-1.5 text-xs rounded-lg transition-all flex items-center justify-center gap-1 ${
+              element.writingMode === 'vertical-rl'
+                ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-sm'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            <span className="text-sm leading-none">A↓</span>
+            <span>竖排</span>
+          </button>
+        </div>
+      </div>
+
       {/* 对齐方式 */}
       <div>
         <label className="block text-xs font-medium text-gray-700 mb-2">对齐方式</label>
@@ -150,6 +260,91 @@ const TypeSettings: React.FC<Props> = ({ element }) => {
             />
           ))}
         </div>
+      </div>
+
+      {/* 渐变文字（P1-2 2026-07-25）— 开关 + from/to 颜色 + 角度 */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-xs font-medium text-gray-700">渐变文字</label>
+          <button
+            onClick={() => {
+              if (element.colorGradient) {
+                handleChangeAndSave('colorGradient', undefined as any)
+              } else {
+                handleChangeAndSave('colorGradient', { from: '#FF5E3A', to: '#FF3366', angle: 90 })
+              }
+            }}
+            className={`relative w-9 h-5 rounded-full transition-colors ${
+              element.colorGradient ? 'bg-gradient-to-r from-orange-500 to-pink-500' : 'bg-gray-300'
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                element.colorGradient ? 'translate-x-4' : 'translate-x-0.5'
+              }`}
+            />
+          </button>
+        </div>
+        {element.colorGradient && (
+          <div className="space-y-2.5 pl-1">
+            {/* 渐变预览条 */}
+            <div
+              className="h-6 rounded-md"
+              style={{
+                backgroundImage: `linear-gradient(${element.colorGradient.angle}deg, ${element.colorGradient.from}, ${element.colorGradient.to})`,
+              }}
+            />
+            {/* from 颜色 */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-gray-500 w-8">起</span>
+              <div className="flex gap-1 flex-1">
+                {colors.slice(0, 8).map(c => (
+                  <button
+                    key={c}
+                    onClick={() => handleChangeAndSave('colorGradient', { ...element.colorGradient!, from: c })}
+                    className={`w-5 h-5 rounded transition-all hover:scale-110 ${
+                      element.colorGradient?.from === c ? 'ring-2 ring-orange-500 ring-offset-1' : ''
+                    }`}
+                    style={{ backgroundColor: c, border: c === '#ffffff' ? '1px solid #e5e7eb' : 'none' }}
+                  />
+                ))}
+              </div>
+            </div>
+            {/* to 颜色 */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-gray-500 w-8">终</span>
+              <div className="flex gap-1 flex-1">
+                {colors.slice(8).map(c => (
+                  <button
+                    key={c}
+                    onClick={() => handleChangeAndSave('colorGradient', { ...element.colorGradient!, to: c })}
+                    className={`w-5 h-5 rounded transition-all hover:scale-110 ${
+                      element.colorGradient?.to === c ? 'ring-2 ring-orange-500 ring-offset-1' : ''
+                    }`}
+                    style={{ backgroundColor: c, border: c === '#ffffff' ? '1px solid #e5e7eb' : 'none' }}
+                  />
+                ))}
+              </div>
+            </div>
+            {/* 角度 slider */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] text-gray-500">角度</span>
+                <span className="text-[10px] text-gray-400 tabular-nums">{element.colorGradient.angle}°</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={360}
+                step={15}
+                value={element.colorGradient.angle}
+                onChange={(e) => handleChange('colorGradient', { ...element.colorGradient!, angle: Number(e.target.value) })}
+                onMouseUp={() => useEditorStore.getState().saveHistory()}
+                className="w-full accent-orange-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 描边开关 */}
@@ -189,6 +384,23 @@ const TypeSettings: React.FC<Props> = ({ element }) => {
                 />
               ))}
             </div>
+          </div>
+          {/* P1-8 字符级描边: 开启后每个字符按 index%5 循环 5 色调色板,实现彩虹标题 */}
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xs text-gray-600">字符级描边</span>
+              <span className="text-[10px] text-gray-400 ml-1.5">彩虹循环</span>
+            </div>
+            <button
+              onClick={() => handleChangeAndSave('strokeColorPerChar', !element.strokeColorPerChar)}
+              className={`relative w-9 h-5 rounded-full transition-colors ${
+                element.strokeColorPerChar ? 'bg-gradient-to-r from-orange-500 via-pink-500 to-purple-500' : 'bg-gray-300'
+              }`}
+            >
+              <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                element.strokeColorPerChar ? 'translate-x-4' : 'translate-x-0.5'
+              }`} />
+            </button>
           </div>
         </div>
       )}

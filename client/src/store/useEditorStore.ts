@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import type { Element, TextElement, ShapeElement } from '../data'
 import type { Ratio } from '../types'
 import { rasterizeTextElement, rasterizeShapeElement, canRasterize } from '../utils/rasterize'
+import { getShortSide } from '../utils/canvasConstants'
 
 // 背景元素检测：id 以 'bg' 开头 或 shape 是 overlay
 // 背景元素锁定在数组最前，禁止上移/置顶（避免覆盖文字）
@@ -41,6 +42,7 @@ interface EditorState {
 
   // 基础操作
   setRatio: (ratio: Ratio) => void
+  adaptFontSizeToRatio: (oldRatio: Ratio, newRatio: Ratio) => void
   addElement: (element: Element) => void
   updateElement: (id: string, updates: Partial<Element>) => void
   deleteElement: (id: string) => void
@@ -109,6 +111,28 @@ export const useEditorStore = create<EditorState>()(
 
   setRatio: (ratio) => {
     set({ ratio, dirty: true })
+    get().saveHistory()
+  },
+
+  /**
+   * 等比缩放字号（P1-3 2026-07-25）
+   * 当画布比例从 oldRatio 切到 newRatio 时,按"短边比例"缩放所有文字字号
+   * 例: 9:16 (短边 405) → 16:9 (短边 405) = 1.0x 不变
+   *     9:16 (短边 405) → 1:1 (短边 540) = 1.33x 所有文字字号
+   * 保留: 字重/字间距/行高/字体/位置/颜色（只改 fontSize）
+   */
+  adaptFontSizeToRatio: (oldRatio, newRatio) => {
+    if (oldRatio === newRatio) return
+    const oldShort = getShortSide(oldRatio)
+    const newShort = getShortSide(newRatio)
+    const scale = newShort / oldShort
+    set(state => ({
+      elements: state.elements.map(el => {
+        if (el.type !== 'text') return el
+        return { ...el, fontSize: Math.round((el as any).fontSize * scale) }
+      }),
+      dirty: true,
+    }))
     get().saveHistory()
   },
 

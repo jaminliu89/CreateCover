@@ -39,6 +39,16 @@ export interface TextElement {
   flipV?: boolean  // 垂直镜像翻转
   locked?: boolean  // 锁定后不可拖拽/缩放/旋转
   groupId?: string  // 编组 ID（同组元素一起移动/删除）
+  // 文字排版扩展（P0-2/3 需求 2026-07-25）：都是可选字段，老数据没设置时按默认值走
+  letterSpacing?: number  // 字间距（px），默认 0
+  lineHeight?: number  // 行高倍数，默认 1.2
+  writingMode?: 'horizontal-tb' | 'vertical-rl'  // 横排/竖排，默认 'horizontal-tb'
+  // 渐变文字（P1-2 2026-07-25）：存在时优先于 color 字段
+  // 通过 background + background-clip: text 实现
+  colorGradient?: { from: string; to: string; angle: number }  // angle: 0-360 度
+  // 字符级描边（P1-8 2026-07-25）：开启后每个字符按 index%5 循环使用 palette 描边色
+  // 适合"彩虹标题"等需要每个字不同描边的场景
+  strokeColorPerChar?: boolean
 }
 
 export interface ImageElement {
