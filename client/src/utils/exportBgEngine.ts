@@ -81,14 +81,13 @@ function paintBgLayer(
     if (stops.length < 2) return
 
     const pos = parsePosition(posStr, w, h)
-    const rx = shape === 'circle'
-      ? Math.max(w, h)
-      : parseRadialSize(sizeType, w, h).rx
-    const ry = shape === 'circle'
-      ? rx
-      : parseRadialSize(sizeType, w, h).ry
+    // Canvas2D createRadialGradient 只支持圆形渐变（单一半径）
+    // circle: 用 farthest-corner 半径（从中心到最远角）
+    // ellipse: 取长轴半径做圆形兜底（视觉上最接近）
+    const size = parseRadialSize(shape === 'circle' ? 'farthest-corner' : sizeType, w, h)
+    const radius = Math.max(size.rx, size.ry)
 
-    const grad = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, Math.max(rx, ry))
+    const grad = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, radius)
     for (const s of stops) grad.addColorStop(s.pct, s.color)
     ctx.fillStyle = grad
     ctx.fillRect(0, 0, w, h)

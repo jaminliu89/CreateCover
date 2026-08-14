@@ -4,6 +4,8 @@
  * ONNX 模式：@imgly/background-removal ISNet 模型（浏览器内 ORT 推理）
  *   - 精度高，适合人像/产品/复杂背景
  *   - 首次需下载模型 ≈80MB，缓存后可离线
+ *   - 当前状态：Web 部署因模型文件 >25MB 不可用（Cloudflare Pages 限制）
+ *   - 桌面端（Electron）：ONNX 模型随应用打包，可用
  *
  * K-means 模式：纯 Canvas2D 聚类（零依赖）
  *   - 速度极快（<500ms），效果中等（简单背景好、复杂背景边缘有残留）
@@ -13,6 +15,9 @@
  *   mode="auto"   → 检测模型是否存在，存在走 ONNX，否则 K-means
  *   mode="onnx"   → 强制 ONNX（模型必须部署，否则会报错后 fallback）
  *   mode="kmeans" → 强制 K-means（跳过模型检测，零网络请求）
+ *
+ * 能力检测：detectCutoutCapability() 可在应用启动时预判抠图能力，
+ *           让 UI 提前展示正确的模式标签，避免用户点抠图才看到降级提示。
  */
 
 import { removeBackground } from '@imgly/background-removal'
@@ -37,7 +42,86 @@ export interface CutoutOptions {
   mode?: CutoutMode
 }
 
-// 是否已提示过降级（同一 session 只提示一次）
+// ---- 抠图能力预检测 ---------------------------------------------------------
+
+/** 抠图能力级别 */
+export type CutoutCapability = 'deep' | 'basic' | 'unknown'
+
+/**
+ * 预检测当前环境是否支持 ONNX 深度学习抠图。
+ * - 在应用启动 / 组件挂载时调用，让 UI 提前展示正确的模式标签
+ * - 检测逻辑：检查 resources.json 和模型文件是否可 FETCH（非 HTML fallback）
+ * - 缓存结果，避免重复请求
+ */
+export function validateResourceManifest(
+  manifest: Record<string, { size?: number; chunks?: Array<{ name?: string; offsets?: number[] }> }>,
+  model: string
+): string[] | null {
+  const requiredKeys = [
+    `/models/${model}`,
+    '/onnxruntime-web/ort-wasm-simd-threaded.wasm',
+    '/onnxruntime-web/ort-wasm-simd-threaded.mjs',
+  ]
+  const chunkNames: string[] = []
+
+  for (const key of requiredKeys) {
+    const entry = manifest[key]
+    if (!entry || !Number.isFinite(entry.size) || !Array.isArray(entry.chunks) || entry.chunks.length === 0) {
+      return null
+    }
+    let expectedStart = 0
+    for (const chunk of entry.chunks) {
+      const [start, end] = chunk.offsets || []
+      if (!chunk.name || start !== expectedStart || !Number.isFinite(end) || end <= start) return null
+      chunkNames.push(chunk.name)
+      expectedStart = end
+    }
+    if (expectedStart !== entry.size) return null
+  }
+
+  return chunkNames
+}
+
+let _capabilityCache: CutoutCapability | null = null
+export async function detectCutoutCapability(): Promise<CutoutCapability> {
+  if (_capabilityCache) return _capabilityCache
+  try {
+    const resourceURL = getAssetResourceURL('resources.json')
+    const res = await fetch(resourceURL, { cache: 'no-store' })
+    const ct = res.headers.get('content-type') || ''
+    if (!res.ok || ct.includes('text/html')) {
+      _capabilityCache = 'basic'
+      return 'basic'
+    }
+
+    const manifest = await res.json()
+    const chunkNames = validateResourceManifest(manifest, 'isnet_fp16')
+    if (!chunkNames) {
+      _capabilityCache = 'basic'
+      return 'basic'
+    }
+
+    const baseURL = getAssetBaseURL()
+    const chunkChecks = await Promise.all(chunkNames.map(async (name) => {
+      const chunkRes = await fetch(new URL(name, baseURL), { method: 'HEAD', cache: 'no-store' })
+      const chunkCt = chunkRes.headers.get('content-type') || ''
+      return chunkRes.ok && !chunkCt.includes('text/html')
+    }))
+    _capabilityCache = chunkChecks.every(Boolean) ? 'deep' : 'basic'
+    return _capabilityCache
+  } catch {
+    _capabilityCache = 'basic'
+    return 'basic'
+  }
+}
+
+/** 清除能力缓存（用在环境切换时，如 Electron → Web） */
+export function resetCutoutCapabilityCache(): void {
+  _capabilityCache = null
+}
+
+// ---- 降级提示（同一 session 只提示一次）---------------------------------------
+
 let _fallbackNotified = false
 
 // ---- dataURL ↔ Blob -------------------------------------------------------
@@ -81,49 +165,32 @@ export async function cutoutImageLocal(
   const preset = CUTOUT_TOLERANCE_PRESETS[options.tolerance ?? 'mid']
   const mode = options.mode ?? 'auto'
 
-  // ── 诊断：分支定位 ──
-  const cutlog = (msg: string) => console.log(`[cutout:diag] ${msg}`)
-  cutlog('=== cutoutImageLocal entry ===')
-  cutlog(`BASE_URL=${import.meta.env.BASE_URL}`)
-  cutlog(`origin=${window.location.origin}`)
-  cutlog(`mode=${mode}`)
-  cutlog(`model=${preset.model}`)
-  cutlog(`tolerance=${options.tolerance ?? 'mid'}`)
-  cutlog(`src length=${src?.length ?? 0}`)
-  cutlog(`src prefix=${src?.substring(0, 50) ?? 'EMPTY'}`)
-
-  // ── 策略开关：mode === 'kmeans' 直通快速路径，跳过所有网络探测 ──
+  // mode="kmeans" 直通快速路径，跳过所有模型探测
   if (mode === 'kmeans') {
     if (!_fallbackNotified) {
       _fallbackNotified = true
       onProgress?.('⚡ 使用 K-means 模式（策略指定）')
     }
-    return kmeansCutout(src, { onProgress })
+    return kmeansCutout(src, { onProgress, tolerance: options.tolerance })
   }
 
-  // ── mode === 'auto' 时探测模型是否可用 ──
+  // auto 模式先探测完整 manifest/chunk 契约，不完整时立即降级
   if (mode === 'auto') {
-    cutlog('mode=auto: checking model availability...')
     const modelAvailable = await checkModelAvailable(preset.model, onProgress)
-    cutlog(`mode=auto: modelAvailable=${modelAvailable}`)
     if (!modelAvailable) {
-      cutlog('mode=auto: model NOT available → fallback to kmeans')
       if (!_fallbackNotified) {
         _fallbackNotified = true
-        onProgress?.('⚡ 使用 K-means 降级模式（本地算法）')
+        onProgress?.('⚡ 使用本地抠图算法（AI 模型未部署，不影响基础抠图质量）')
       }
-      return kmeansCutout(src, { onProgress })
+      return kmeansCutout(src, { onProgress, tolerance: options.tolerance })
     }
-    cutlog('mode=auto: model IS available → proceed to ONNX')
   }
 
-  // ── mode === 'onnx' 或 auto 探测通过后走 ONNX + 5s 超时竞速 ──
-  cutlog('entering ONNX path...')
+  // mode="onnx" 或 auto 探测通过后走 ONNX + 5s 超时竞速
   onProgress?.('ONNX 推理中...')
-  let onnxTimer: any = null
+  let onnxTimer: ReturnType<typeof setTimeout> | null = null
   try {
     const inputBlob = await dataUrlToBlob(src)
-    cutlog(`dataUrlToBlob done, blob size=${inputBlob.size}`)
 
     const onnxPromise = removeBackground(inputBlob, {
       model: preset.model,
@@ -137,27 +204,19 @@ export async function cutoutImageLocal(
       },
     })
 
-    // 超时竞速：ONNX 超 5s 自动切换 K-means
-    const timeoutPromise = new Promise<string>((_, reject) => {
+    const timeoutPromise = new Promise<Blob>((_, reject) => {
       onnxTimer = setTimeout(() => reject(new Error('ONNX 推理超时（5s）')), 5000)
     })
 
-    cutlog('racing ONNX vs 5s timeout...')
-    const outputBlob = (await Promise.race([onnxPromise, timeoutPromise])) as Blob
-    clearTimeout(onnxTimer)
-    cutlog(`ONNX race won, outputBlob size=${outputBlob.size}, type=${outputBlob.type}`)
+    const outputBlob = await Promise.race([onnxPromise, timeoutPromise])
+    if (onnxTimer) clearTimeout(onnxTimer)
     onProgress?.('转换结果...')
-    const result = blobToDataUrl(outputBlob)
-    cutlog('ONNX success, returning dataURL')
-    return result
+    return blobToDataUrl(outputBlob)
   } catch (err) {
     if (onnxTimer) clearTimeout(onnxTimer)
-    cutlog(`ONNX FAILED: ${err instanceof Error ? err.message : String(err)}`)
-    if (err instanceof Error && err.stack) cutlog(`ONNX stack: ${err.stack.split('\n').slice(0, 3).join(' | ')}`)
     console.warn('[cutout] ONNX 失败，降级到 K-means:', err)
-    onProgress?.('⚡ ONNX 不可用，切换到 K-means 降级模式...')
-    cutlog('→ falling back to kmeans')
-    return kmeansCutout(src, { onProgress })
+    onProgress?.('⚡ AI 模型加载失败，自动切换到本地抠图算法...')
+    return kmeansCutout(src, { onProgress, tolerance: options.tolerance })
   }
 }
 
@@ -170,73 +229,47 @@ async function checkModelAvailable(
   model: string,
   onProgress?: (msg: string) => void
 ): Promise<boolean> {
-  const cutlog = (msg: string) => console.log(`[cutout:diag] ${msg}`)
-  try {
-    const resourceURL = getAssetResourceURL('resources.json')
-    cutlog(`checkModel: fetching ${resourceURL}`)
-    const res = await fetch(resourceURL, {
-      method: 'HEAD',
-      cache: 'no-store',
-    })
-    const ct = res.headers.get('content-type') || ''
-    const cl = res.headers.get('content-length') || 'unknown'
-    cutlog(`checkModel: resources.json status=${res.status} ct=${ct} cl=${cl}`)
-    if (!res.ok || ct.includes('text/html')) {
-      onProgress?.(`模型资源未部署（status=${res.status}）`)
-      cutlog(`checkModel: resources.json NOT OK or HTML fallback → return false`)
-      return false
-    }
-
-    const modelURL = getAssetModelURL(model)
-    cutlog(`checkModel: fetching ${modelURL}`)
-    const res2 = await fetch(modelURL, {
-      method: 'HEAD',
-      cache: 'no-store',
-    })
-    const ct2 = res2.headers.get('content-type') || ''
-    const cl2 = res2.headers.get('content-length') || 'unknown'
-    cutlog(`checkModel: model HEAD status=${res2.status} ct=${ct2} cl=${cl2}`)
-    if (!res2.ok || ct2.includes('text/html')) {
-      onProgress?.(`模型文件 ${model} 缺失（status=${res2.status}）`)
-      cutlog(`checkModel: model NOT OK or HTML fallback → return false`)
-      return false
-    }
-    cutlog('checkModel: BOTH available → return true')
-    return true
-  } catch (e) {
-    cutlog(`checkModel: CAUGHT ${e instanceof Error ? e.message : String(e)}`)
+  const capability = await detectCutoutCapability()
+  if (capability !== 'deep') {
+    onProgress?.('🖥️ Web 版使用本地抠图算法（AI 模型资源未完整部署）')
     return false
   }
+
+  // detectCutoutCapability 当前校验固定的 isnet_fp16；其他模型仍需独立确认。
+  if (model !== 'isnet_fp16') {
+    const modelRes = await fetch(getAssetModelURL(model), { method: 'HEAD', cache: 'no-store' })
+    const contentType = modelRes.headers.get('content-type') || ''
+    return modelRes.ok && !contentType.includes('text/html')
+  }
+  return true
 }
 
 // ===========================================================================
-// K‑means 抠图 — 纯 Canvas2D 聚类，零依赖
+// 边缘采样抠图 — 纯 Canvas2D 颜色距离法，零依赖
 // ===========================================================================
 
 export interface KmeansCutoutOpts {
   onProgress?: (msg: string) => void
-  k?: number            // 聚类数（默认 3）
-  maxIter?: number      // 最大迭代（默认 12）
-  sampleThin?: number   // 边缘采样间隔（默认 2）
-  edgeRatio?: number    // 边缘采样区域比例（默认 2%）
+  tolerance?: keyof typeof CUTOUT_TOLERANCE_PRESETS
   featherSigma?: number // 羽化高斯核半径（默认 5）
 }
 
 /**
- * K‑means 抠图（基于 V2 原型算法 + k-means++ 初始化）
- * - 边缘采样（四边 + 四角）→ k-means++ 聚类 → 双阈值距离判定 → alpha 羽化 → 高斯平滑
+ * 背景色抠图算法
+ * - 核心思路：从边缘采样背景颜色，计算每个像素与背景色的距离，距离近的设为透明
+ * - 算法流程：
+ *   1. 采样边缘像素，计算背景色平均值
+ *   2. 对每个像素计算与背景色的距离
+ *   3. 根据距离设置 alpha 值（距离近=透明，距离远=不透明）
+ *   4. 边缘羽化平滑处理
  */
 export async function kmeansCutout(
   dataUrl: string,
   opts: KmeansCutoutOpts = {}
 ): Promise<string> {
-  console.log('[cutout:diag] kmeansCutout ENTER')
   const {
     onProgress,
-    k = 3,
-    maxIter = 12,
-    sampleThin = 2,
-    edgeRatio = 0.02,
+    tolerance = 'mid',
     featherSigma = 5,
   } = opts
 
@@ -246,6 +279,7 @@ export async function kmeansCutout(
   // 缩放大图到 1000px 以内（性能优化）
   let w = img.naturalWidth
   let h = img.naturalHeight
+  if (w <= 0 || h <= 0) throw new Error('图片尺寸无效')
   const MAX_SIZE = 1000
   if (w > MAX_SIZE || h > MAX_SIZE) {
     const scale = Math.min(MAX_SIZE / w, MAX_SIZE / h)
@@ -259,63 +293,76 @@ export async function kmeansCutout(
   const ctx = canvas.getContext('2d')!
   ctx.drawImage(img, 0, 0, w, h)
   const imageData = ctx.getImageData(0, 0, w, h)
+  const srcData = imageData.data
 
-  onProgress?.('采样边缘像素...')
+  onProgress?.('分析边缘颜色...')
 
-  // 1. 边缘采样（四边 + 四角 各 N 点）
+  // 1. 采样边缘像素，计算背景色平均值
   const edgePixels: number[][] = []
-  const margin = Math.floor(Math.min(w, h) * edgeRatio)
-  for (let y = 0; y < h; y += sampleThin) {
-    for (let x = 0; x < margin; x += sampleThin) {
-      edgePixels.push(sampleRGB(imageData, x, y))
-      edgePixels.push(sampleRGB(imageData, w - 1 - x, y))
-    }
-  }
-  for (let x = 0; x < w; x += sampleThin) {
-    for (let y = 0; y < margin; y += sampleThin) {
+  const margin = Math.max(2, Math.floor(Math.min(w, h) * 0.05)) // 边缘采样宽度 5%
+  
+  // 上边和下边
+  for (let y = 0; y < margin; y++) {
+    for (let x = 0; x < w; x += 2) {
       edgePixels.push(sampleRGB(imageData, x, y))
       edgePixels.push(sampleRGB(imageData, x, h - 1 - y))
     }
   }
+  // 左边和右边
+  for (let x = 0; x < margin; x++) {
+    for (let y = 0; y < h; y += 2) {
+      edgePixels.push(sampleRGB(imageData, x, y))
+      edgePixels.push(sampleRGB(imageData, w - 1 - x, y))
+    }
+  }
+  
+  if (edgePixels.length === 0) throw new Error('无法采样图片边缘像素')
 
-  onProgress?.('K‑means 聚类...')
+  // 计算背景色平均值
+  let bgR = 0, bgG = 0, bgB = 0
+  for (const [r, g, b] of edgePixels) {
+    bgR += r
+    bgG += g
+    bgB += b
+  }
+  bgR = Math.round(bgR / edgePixels.length)
+  bgG = Math.round(bgG / edgePixels.length)
+  bgB = Math.round(bgB / edgePixels.length)
+  
+  onProgress?.('识别背景区域...')
 
-  // 2. k-means++ 初始化
-  const centroids = kmeansPPInit(edgePixels, k)
+  // 2. 根据容差预设计算阈值
+  const preset = CUTOUT_TOLERANCE_PRESETS[tolerance]
+  const hardThreshold = preset.hard
+  const featherThreshold = preset.feather
 
-  // 3. 迭代聚类
-  const { labels } = kmeansIterate(edgePixels, centroids, maxIter)
-
-  // 4. 找背景簇（亮度最高/饱和度最低的边缘簇 = 背景）
-  const bgLabel = findBgCluster(edgePixels, labels, k)
-
-  // 5. 双阈值距离判定（t0 = 绝对背景，t1 = 羽化过渡）
-  const feat = CUTOUT_TOLERANCE_PRESETS[opts.onProgress ? 'mid' : 'low']
-  const t0 = feat.hard / 100
-  const t1 = Math.min(feat.feather / 100, 0.85)
-
-  // 计算背景簇中心到各像素的距离
-  const bgCenter = centroids[bgLabel]
+  // 3. 对每个像素计算与背景色的距离，设置 alpha 值
   const output = ctx.createImageData(w, h)
-  const srcData = imageData.data
-
-  onProgress?.('羽化边缘...')
-
+  
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const idx = (y * w + x) * 4
-      const [r, g, b] = [srcData[idx], srcData[idx + 1], srcData[idx + 2]]
-      const dist = colorDistance([r, g, b], bgCenter)
-
+      const r = srcData[idx]
+      const g = srcData[idx + 1]
+      const b = srcData[idx + 2]
+      
+      // 计算颜色距离（欧几里得距离）
+      const dr = r - bgR
+      const dg = g - bgG
+      const db = b - bgB
+      const distance = Math.sqrt(dr * dr + dg * dg + db * db)
+      
+      // 根据距离设置 alpha 值
       let alpha: number
-      if (dist <= t0) {
-        alpha = 0                      // 背景 → 透明
-      } else if (dist >= t1) {
-        alpha = 255                    // 前景 → 不透明
+      if (distance <= hardThreshold) {
+        alpha = 0 // 背景：完全透明
+      } else if (distance >= featherThreshold) {
+        alpha = 255 // 前景：完全不透明
       } else {
-        alpha = Math.round(((dist - t0) / (t1 - t0)) * 255)  // 渐过渡
+        // 过渡区域：线性插值
+        alpha = Math.round(((distance - hardThreshold) / (featherThreshold - hardThreshold)) * 255)
       }
-
+      
       output.data[idx] = r
       output.data[idx + 1] = g
       output.data[idx + 2] = b
@@ -323,19 +370,20 @@ export async function kmeansCutout(
     }
   }
 
-  // 6. 高斯平滑（去锯齿边缘）
+  // 4. 高斯平滑（去锯齿边缘）
+  onProgress?.('平滑边缘...')
   if (featherSigma > 0) {
-    onProgress?.('平滑边缘...')
     gaussianBlurAlpha(output, w, h, featherSigma)
   }
 
-  // 7. 写回 Canvas
+  onProgress?.('缩放回原始尺寸...')
+
+  // 5. 写回 Canvas 并缩放回原始尺寸
   const outCanvas = document.createElement('canvas')
   outCanvas.width = w
   outCanvas.height = h
   outCanvas.getContext('2d')!.putImageData(output, 0, 0)
 
-  onProgress?.('缩放回原始尺寸...')
   const resultCanvas = document.createElement('canvas')
   resultCanvas.width = img.naturalWidth
   resultCanvas.height = img.naturalHeight
@@ -347,7 +395,7 @@ export async function kmeansCutout(
 }
 
 // ===========================================================================
-// K‑means 内部算法
+// 内部辅助函数
 // ===========================================================================
 
 /** 在 (x, y) 处采样 RGB */
@@ -356,76 +404,18 @@ function sampleRGB(imgData: ImageData, x: number, y: number): number[] {
   return [imgData.data[idx], imgData.data[idx + 1], imgData.data[idx + 2]]
 }
 
-/** 欧几里得颜色距离 */
-function colorDistance(a: number[], b: number[]): number {
-  const dr = a[0] - b[0], dg = a[1] - b[1], db = a[2] - b[2]
-  return Math.sqrt(dr * dr + dg * dg + db * db)
-}
-
-/** k-means++ 初始化 */
-function kmeansPPInit(points: number[][], k: number): number[][] {
-  const centroids: number[][] = [points[Math.floor(Math.random() * points.length)]]
-  while (centroids.length < k) {
-    const dists = points.map(p => Math.min(...centroids.map(c => colorDistance(p, c))))
-    const total = dists.reduce((s, d) => s + d * d, 0)
-    let r = Math.random() * total
-    for (let i = 0; i < points.length; i++) {
-      r -= dists[i] * dists[i]
-      if (r <= 0) { centroids.push(points[i]); break }
-    }
-  }
-  return centroids
-}
-
-/** K-means 迭代聚类 */
-function kmeansIterate(points: number[][], centroids: number[][], maxIter: number): { centroids: number[][]; labels: number[] } {
-  let bestCentroids = centroids
-  const labels = new Array(points.length)
-  for (let iter = 0; iter < maxIter; iter++) {
-    let changed = false
-    // Assign
-    for (let i = 0; i < points.length; i++) {
-      let minDist = Infinity, bestLabel = 0
-      for (let j = 0; j < bestCentroids.length; j++) {
-        const d = colorDistance(points[i], bestCentroids[j])
-        if (d < minDist) { minDist = d; bestLabel = j }
-      }
-      if (labels[i] !== bestLabel) { labels[i] = bestLabel; changed = true }
-    }
-    if (!changed) break
-    // Update
-    for (let j = 0; j < bestCentroids.length; j++) {
-      const members = points.filter((_, i) => labels[i] === j)
-      if (members.length === 0) continue
-      const avg = [0, 0, 0]
-      for (const m of members) { avg[0] += m[0]; avg[1] += m[1]; avg[2] += m[2] }
-      bestCentroids[j] = avg.map(v => Math.round(v / members.length))
-    }
-  }
-  return { centroids: bestCentroids, labels }
-}
-
-/** 找背景簇（亮度最高 + 面积最小的边缘簇是背景） */
-function findBgCluster(points: number[][], labels: number[], k: number): number {
-  const clusterBrightness = new Array(k).fill(0)
-  const clusterCount = new Array(k).fill(0)
-  for (let i = 0; i < points.length; i++) {
-    const lum = 0.299 * points[i][0] + 0.587 * points[i][1] + 0.114 * points[i][2]
-    clusterBrightness[labels[i]] += lum
-    clusterCount[labels[i]]++
-  }
-  let bg = 0, maxScore = -Infinity
-  for (let j = 0; j < k; j++) {
-    const avgBrightness = clusterBrightness[j] / (clusterCount[j] || 1)
-    // try to take the smallest and brightest cluster
-    const score = avgBrightness - clusterCount[j] / points.length * 200
-    if (score > maxScore) { maxScore = score; bg = j }
-  }
-  return bg
+/** 根据颜色距离计算 alpha 值（容差映射） */
+export function alphaForDistance(distance: number, tolerance: keyof typeof CUTOUT_TOLERANCE_PRESETS): number {
+  const feat = CUTOUT_TOLERANCE_PRESETS[tolerance]
+  const t0 = feat.hard
+  const t1 = Math.max(t0 + 1, feat.feather)
+  if (distance <= t0) return 0
+  if (distance >= t1) return 255
+  return Math.round(((distance - t0) / (t1 - t0)) * 255)
 }
 
 /** Alpha 通道高斯模糊 */
-function gaussianBlurAlpha(imgData: ImageData, w: number, h: number, sigma: number) {
+export function gaussianBlurAlpha(imgData: ImageData, w: number, h: number, sigma: number) {
   const radius = Math.ceil(sigma * 2)
   const kernel: number[] = []
   let sum = 0
@@ -464,7 +454,7 @@ function gaussianBlurAlpha(imgData: ImageData, w: number, h: number, sigma: numb
         kw += kernel[k]
       }
       // 只在 alpha 通道上平滑（抑制背景残留）
-      imgData.data[(y * w + x) * stride + 3] = Math.max(0, imgData.data[(y * w + x) * stride + 3])
+      imgData.data[(y * w + x) * stride + 3] = kw > 0 ? sum / kw : tmp[(y * w + x) * stride + 3]
     }
   }
 }

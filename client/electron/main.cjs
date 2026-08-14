@@ -1,75 +1,168 @@
-const { app, BrowserWindow, Menu, shell, protocol } = require('electron')
-const http = require('http')
-const fs = require('fs')
+const { app, BrowserWindow, Menu, shell, protocol, ipcMain, net } = require('electron')
 const path = require('path')
+const fs = require('fs')
 
-// 禁用 GPU 加速（解决 GPU 进程崩溃问题）
-app.disableHardwareAcceleration()
+// ============================================================
+// 常量
+// ============================================================
 
-let mainWindow
-let server
+const SCHEME = 'app'
+const HOST = 'coverforge'
+const ORIGIN = `${SCHEME}://${HOST}`
 
+// MIME 类型映射
 const MIME = {
-  '.html': 'text/html',
-  '.js': 'application/javascript',
-  '.css': 'text/css',
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
   '.wasm': 'application/wasm',
-  '.json': 'application/json',
-  '.mjs': 'application/javascript',
+  '.json': 'application/json; charset=utf-8',
   '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.mp3': 'audio/mpeg',
+  '.mp4': 'video/mp4',
 }
 
-// 简易 HTTP 服务器：托管 dist/ + resources
-function startServer() {
-  const distPath = path.join(__dirname, '../dist')
-  const resourcesPath = process.resourcesPath || path.join(__dirname, '..')
+let mainWindow = null
 
-  return new Promise((resolve) => {
-    server = http.createServer((req, res) => {
-      let url = req.url.split('?')[0]
-      let filePath = path.join(distPath, url === '/' ? 'index.html' : url)
+// ============================================================
+// 自定义协议：app://coverforge/*
+//
+// 替代本地 HTTP server 的标准做法：
+//   - 安全：自定义协议 + contextIsolation = Electron 推荐安全模型
+//   - 性能：比 localhost HTTP 少一层 TCP 栈
+//   - 兼容：ONNX 模型 / WASM 都能正确加载（设置正确 MIME）
+// ============================================================
 
-      // 资源路径映射: /resources/xxx → Resources/xxx
-      if (url.startsWith('/resources/')) {
-        const relPath = url.replace('/resources/', '')
-        filePath = path.join(resourcesPath, relPath)
-      }
+function getDistPath() {
+  // 打包后：app.asar 同级的 dist 目录；开发时：项目根的 dist
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'dist')
+  }
+  return path.join(__dirname, '../dist')
+}
 
-      const ext = path.extname(filePath)
-      const contentType = MIME[ext] || 'application/octet-stream'
+function getModelsPath() {
+  // 打包后：Resources/models；开发时：public/models（通过 dist 访问）
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'models')
+  }
+  return path.join(__dirname, '../public/models')
+}
 
-      fs.readFile(filePath, (err, data) => {
-        if (err) {
-          // SPA fallback
-          fs.readFile(path.join(distPath, 'index.html'), (err2, data2) => {
-            if (err2) {
-              res.writeHead(404)
-              res.end('404')
-            } else {
-              res.writeHead(200, { 'Content-Type': 'text/html' })
-              res.end(data2)
-            }
-          })
-        } else {
-          res.writeHead(200, { 'Content-Type': contentType })
-          res.end(data)
-        }
+function getOnnxRuntimePath() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'onnxruntime-web')
+  }
+  return path.join(__dirname, '../public/onnxruntime-web')
+}
+
+function getMime(filePath) {
+  const ext = path.extname(filePath).toLowerCase()
+  return MIME[ext] || 'application/octet-stream'
+}
+
+// 注册为 privileged（支持 fetch / Service Worker 等）
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      allowServiceWorkers: true,
+      corsEnabled: true,
+      stream: true,
+      codeCache: true,
+    },
+  },
+])
+
+function handleSchemeRequest(request) {
+  const url = new URL(request.url)
+  let reqPath = decodeURIComponent(url.pathname)
+
+  // 根路径 → index.html
+  if (reqPath === '/' || reqPath === '') {
+    reqPath = '/index.html'
+  }
+
+  let filePath
+
+  // 模型文件：/models/xxx → Resources/models/xxx
+  if (reqPath.startsWith('/models/')) {
+    filePath = path.join(getModelsPath(), reqPath.replace('/models/', ''))
+  }
+  // ONNX Runtime：/onnxruntime-web/xxx → Resources/onnxruntime-web/xxx
+  else if (reqPath.startsWith('/onnxruntime-web/')) {
+    filePath = path.join(getOnnxRuntimePath(), reqPath.replace('/onnxruntime-web/', ''))
+  }
+  // resources.json → Resources/resources.json（打包后）或 dist/resources.json（开发）
+  else if (reqPath === '/resources.json') {
+    const distPath = path.join(getDistPath(), 'resources.json')
+    if (fs.existsSync(distPath)) {
+      filePath = distPath
+    } else if (app.isPackaged) {
+      filePath = path.join(process.resourcesPath, 'resources.json')
+    } else {
+      filePath = path.join(__dirname, '../public/resources.json')
+    }
+  }
+  // 普通静态资源 → dist/
+  else {
+    filePath = path.join(getDistPath(), reqPath)
+  }
+
+  // 安全检查：防止路径穿越
+  const distPath = getDistPath()
+  const modelsPath = getModelsPath()
+  const onnxPath = getOnnxRuntimePath()
+  const normalized = path.normalize(filePath)
+  const inDist = normalized.startsWith(path.normalize(distPath))
+  const inModels = normalized.startsWith(path.normalize(modelsPath))
+  const inOnnx = normalized.startsWith(path.normalize(onnxPath))
+
+  if (!inDist && !inModels && !inOnnx) {
+    return new Response('Forbidden', { status: 403 })
+  }
+
+  try {
+    const data = fs.readFileSync(normalized)
+    const contentType = getMime(normalized)
+    return new Response(data, {
+      status: 200,
+      headers: { 'Content-Type': contentType },
+    })
+  } catch {
+    // SPA fallback：任何不存在的路径都返回 index.html
+    try {
+      const indexPath = path.join(getDistPath(), 'index.html')
+      const indexData = fs.readFileSync(indexPath)
+      return new Response(indexData, {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
       })
-    })
-
-    server.listen(0, '127.0.0.1', () => {
-      const port = server.address().port
-      console.log(`[server] http://127.0.0.1:${port}`)
-      resolve(port)
-    })
-  })
+    } catch {
+      return new Response('Not Found', { status: 404 })
+    }
+  }
 }
+
+// ============================================================
+// 窗口创建
+// ============================================================
 
 async function createWindow() {
-  const port = await startServer()
-
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -79,22 +172,28 @@ async function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      // preload: path.join(__dirname, 'preload.cjs'),  // 暂时不用
-      webSecurity: false,
+      preload: path.join(__dirname, 'preload.cjs'),
+      // 保持默认安全配置（不设 webSecurity: false）
+      sandbox: false, // preload 用 Node API 时需要
     },
   })
 
-  // 调试日志
-  mainWindow.webContents.on('console-message', (e, level, message) => {
-    const lvl = ['log', 'warn', 'error'][level] || `L${level}`
-    console.log(`[renderer:${lvl}] ${message}`)
-  })
+  // 调试日志（仅开发环境）
+  if (!app.isPackaged) {
+    mainWindow.webContents.on('console-message', (e, level, message) => {
+      const lvl = ['log', 'warn', 'error'][level] || `L${level}`
+      console.log(`[renderer:${lvl}] ${message}`)
+    })
+  }
   mainWindow.webContents.on('render-process-gone', (e, details) => {
     console.error('[renderer:crash]', JSON.stringify(details))
   })
 
-  // 通过本地 HTTP server 加载（避开 file:// 协议坑）
-  await mainWindow.loadURL(`http://127.0.0.1:${port}`)
+  // 注册协议处理器
+  protocol.handle(SCHEME, handleSchemeRequest)
+
+  // 加载应用
+  await mainWindow.loadURL(`${ORIGIN}/index.html`)
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
@@ -103,6 +202,21 @@ async function createWindow() {
 
   createMenu()
 }
+
+// ============================================================
+// IPC
+// ============================================================
+
+ipcMain.handle('capture-page', async (_, rect) => {
+  if (!mainWindow) return null
+  const { x, y, width, height } = rect
+  const image = await mainWindow.webContents.capturePage({ x, y, width, height })
+  return image.toDataURL()
+})
+
+// ============================================================
+// 菜单
+// ============================================================
 
 function createMenu() {
   const isMac = process.platform === 'darwin'
@@ -140,10 +254,17 @@ function createMenu() {
   Menu.setApplicationMenu(menu)
 }
 
+// ============================================================
+// 应用生命周期
+// ============================================================
+
+// 必须在 ready 之前注册 scheme 特权
+// （registerSchemesAsPrivileged 已经在上面调用了）
+
 app.whenReady().then(createWindow)
 
 app.on('window-all-closed', () => {
-  if (server) server.close()
+  mainWindow = null
   if (process.platform !== 'darwin') {
     app.quit()
   }

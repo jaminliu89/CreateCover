@@ -104,6 +104,39 @@ const TypeSettings: React.FC<Props> = ({ element }) => {
         />
       </div>
 
+      {/* 文字颜色（上移到字号后：选中文字第一屏即可改色，无需下滚） */}
+      <div>
+        <label className="block text-xs font-medium text-gray-700 mb-2 flex items-center justify-between">
+          <span>文字颜色</span>
+          <label className="flex items-center gap-1 cursor-pointer" title="自定义颜色">
+            <span
+              className="w-5 h-5 rounded-md border border-gray-300"
+              style={{ backgroundColor: element.color }}
+            />
+            <input
+              type="color"
+              value={element.color}
+              onChange={(e) => handleChange('color', e.target.value)}
+              onBlur={() => useEditorStore.getState().saveHistory()}
+              className="w-0 h-0 opacity-0 absolute"
+            />
+            <span className="text-[10px] text-gray-400 font-mono">{element.color}</span>
+          </label>
+        </label>
+        <div className="grid grid-cols-8 gap-1.5">
+          {colors.map(color => (
+            <button
+              key={color}
+              onClick={() => handleChangeAndSave('color', color)}
+              className={`w-7 h-7 rounded-lg transition-all hover:scale-110 ${
+                element.color === color ? 'ring-2 ring-orange-500 ring-offset-1 shadow-md' : ''
+              }`}
+              style={{ backgroundColor: color, border: color === '#ffffff' ? '1px solid #e5e7eb' : 'none' }}
+            />
+          ))}
+        </div>
+      </div>
+
       {/* 字体 */}
       <div>
         <label className="block text-xs font-medium text-gray-700 mb-2">字体</label>
@@ -243,23 +276,6 @@ const TypeSettings: React.FC<Props> = ({ element }) => {
               {index === 1 && <AlignCenter size={16} className="mx-auto" />}
               {index === 2 && <AlignRight size={16} className="mx-auto" />}
             </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 颜色设置 */}
-      <div>
-        <label className="block text-xs font-medium text-gray-700 mb-2">文字颜色</label>
-        <div className="grid grid-cols-8 gap-1.5">
-          {colors.map(color => (
-            <button
-              key={color}
-              onClick={() => handleChangeAndSave('color', color)}
-              className={`w-7 h-7 rounded-lg transition-all hover:scale-110 ${
-                element.color === color ? 'ring-2 ring-orange-500 ring-offset-1 shadow-md' : ''
-              }`}
-              style={{ backgroundColor: color, border: color === '#ffffff' ? '1px solid #e5e7eb' : 'none' }}
-            />
           ))}
         </div>
       </div>
@@ -469,6 +485,41 @@ const TypeSettings: React.FC<Props> = ({ element }) => {
         >
           <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform ${element.shadow ? 'translate-x-6' : 'translate-x-0.5'}`} />
         </button>
+      </div>
+
+      {/* 旋转 */}
+      <div>
+        <label className="block text-xs text-gray-500 mb-1 flex items-center justify-between">
+          <span>旋转 (°)</span>
+          <span className="font-medium text-gray-700">{element.rotation}°</span>
+        </label>
+        <input
+          type="range"
+          min="0"
+          max="360"
+          value={element.rotation}
+          onChange={(e) => handleChange('rotation', Number(e.target.value))}
+          onMouseUp={() => useEditorStore.getState().saveHistory()}
+          className="w-full accent-orange-500"
+        />
+      </div>
+
+      {/* 透明度 */}
+      <div>
+        <label className="block text-xs text-gray-500 mb-1 flex items-center justify-between">
+          <span>透明度 (%)</span>
+          <span className="font-medium text-gray-700">{Math.round(element.opacity * 100)}%</span>
+        </label>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          value={element.opacity}
+          onChange={(e) => handleChange('opacity', Number(e.target.value))}
+          onMouseUp={() => useEditorStore.getState().saveHistory()}
+          className="w-full accent-orange-500"
+        />
       </div>
     </div>
   )

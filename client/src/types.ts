@@ -34,6 +34,20 @@ export interface TextElement {
   bgPadding: number
   rotation: number
   opacity: number
+  flipH?: boolean
+  flipV?: boolean
+  locked?: boolean
+  groupId?: string
+  // 文字排版扩展
+  letterSpacing?: number
+  lineHeight?: number
+  writingMode?: 'horizontal-tb' | 'vertical-rl'
+  // 渐变文字：存在时优先于 color
+  colorGradient?: { from: string; to: string; angle: number }
+  // 字符级描边：每字符循环调色板
+  strokeColorPerChar?: boolean
+  // 文字特效：text-shadow 多层组合
+  effects?: { glow?: boolean; threeD?: boolean; emboss?: boolean }
 }
 
 export interface ImageElement {
@@ -53,6 +67,10 @@ export interface ImageElement {
   src: string
   originalWidth: number
   originalHeight: number
+  flipH?: boolean
+  flipV?: boolean
+  locked?: boolean
+  groupId?: string
 }
 
 export interface ShapeElement {
@@ -69,6 +87,10 @@ export interface ShapeElement {
   radius?: number
   border?: number
   borderColor?: string
+  flipH?: boolean
+  flipV?: boolean
+  locked?: boolean
+  groupId?: string
 }
 
 export interface Template {

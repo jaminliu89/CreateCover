@@ -118,10 +118,19 @@ function serializeText(el: any, w: number, h: number): string {
 function serializeImage(el: any, w: number, h: number): string {
   const px = (v: number) => (v / 100) * w
   const py = (v: number) => (v / 100) * h
-  const x = px(el.x) - px(el.width || 0) / 2
-  const y = py(el.y) - py(el.width || 0) / 2  // simplify: square aspect
+
+  // 宽度用百分比（el.width 是画布占比百分比）
   const width = px(el.width || 50)
-  const height = py(el.width || 50)  // same as width
+  // 高度按原图比例推导（ImageElement 只有 width 字段，高度 = width * aspectRatio）
+  const aspect = el.originalWidth && el.originalHeight
+    ? el.originalHeight / el.originalWidth
+    : 1
+  const height = width * aspect
+
+  // x,y 是元素中心点，需要转成左上角坐标
+  const x = px(el.x) - width / 2
+  const y = py(el.y) - height / 2
+
   const opacity = el.opacity ?? 1
   const rotation = el.rotation || 0
   const flipH = el.flipH ? -1 : 1
@@ -130,22 +139,19 @@ function serializeImage(el: any, w: number, h: number): string {
   // 丢失的图片
   const href = el.src && el.src !== '__IMAGE_LOST__' ? el.src : ''
 
-  // 旋转 + 翻转
-  let transform = ''
-  if (rotation !== 0 || flipH !== 1 || flipV !== 1) {
-    const cx = x + width/2
-    const cy = y + height/2
-    const parts: string[] = []
-    if (flipH !== 1 || flipV !== 1) parts.push(`scale(${flipH}, ${flipV})`)
-    if (rotation !== 0) parts.push(`rotate(${rotation})`)
-    // 旋转中心补偿
-    // 简化：用g translate 包裹
-    transform = `transform="translate(${cx}, ${cy}) rotate(${rotation}) scale(${flipH}, ${flipV})"`
-  }
-  const imgX = transform ? -width/2 : x
-  const imgY = transform ? -height/2 : y
+  // 旋转 + 翻转：围绕中心点
+  const cx = x + width / 2
+  const cy = y + height / 2
+  const hasTransform = rotation !== 0 || flipH !== 1 || flipV !== 1
+  const gOpen = hasTransform
+    ? `<g transform="translate(${cx},${cy}) rotate(${rotation}) scale(${flipH},${flipV})">`
+    : ''
+  const gClose = hasTransform ? '</g>' : ''
+  // transform 包裹时，image 从中心偏移半宽高
+  const imgX = hasTransform ? -width / 2 : x
+  const imgY = hasTransform ? -height / 2 : y
 
-  return `${transform ? '<g '+transform+'>' : ''}<image href="${href}" x="${imgX}" y="${imgY}" width="${width}" height="${height}" opacity="${opacity}" preserveAspectRatio="xMidYMid slice" />${transform ? '</g>' : ''}`
+  return `${gOpen}<image href="${href}" x="${imgX}" y="${imgY}" width="${width}" height="${height}" opacity="${opacity}" preserveAspectRatio="xMidYMid slice" />${gClose}`
 }
 
 // ===========================================================================
