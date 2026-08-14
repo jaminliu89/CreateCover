@@ -508,9 +508,7 @@ const Canvas: React.FC = () => {
         onContextMenu={(e) => handleElementContextMenu(e, element.id)}
         onDoubleClick={(e) => handleDoubleClick(e, element.id, element.content)}
       >
-        {element.locked && (
-          <div className="absolute z-10 -top-2 -right-2 w-5 h-5 bg-amber-400 text-white rounded-full flex items-center justify-center text-[10px] shadow-md pointer-events-none" style={{ border: '1.5px solid white' }} title="已锁定：拖拽/缩放/旋转不会改变元素">🔒</div>
-        )}
+        {element.locked && <LockBadge />}
         <div
           style={{
             fontSize: `${element.fontSize}px`,
@@ -610,9 +608,7 @@ const Canvas: React.FC = () => {
           onMouseDown={(e) => handleElementMouseDown(e, element.id)}
         onContextMenu={(e) => handleElementContextMenu(e, element.id)}
         >
-          {element.locked && (
-            <div className="absolute z-10 -top-2 -right-2 w-5 h-5 bg-amber-400 text-white rounded-full flex items-center justify-center text-[10px] shadow-md pointer-events-none" style={{ border: '1.5px solid white' }} title="已锁定：拖拽/缩放/旋转不会改变元素">🔒</div>
-          )}
+          {element.locked && <LockBadge />}
           <div
             style={{
               width: `${element.width}%`,
@@ -652,9 +648,7 @@ const Canvas: React.FC = () => {
         onMouseDown={(e) => handleElementMouseDown(e, element.id)}
         onContextMenu={(e) => handleElementContextMenu(e, element.id)}
       >
-        {element.locked && (
-          <div className="absolute z-10 -top-2 -right-2 w-5 h-5 bg-amber-400 text-white rounded-full flex items-center justify-center text-[10px] shadow-md pointer-events-none" style={{ border: '1.5px solid white' }} title="已锁定：拖拽/缩放/旋转不会改变元素">🔒</div>
-        )}
+        {element.locked && <LockBadge />}
         <img
           src={element.src}
           alt=""
@@ -705,9 +699,7 @@ const Canvas: React.FC = () => {
         onMouseDown={(e) => handleElementMouseDown(e, element.id)}
         onContextMenu={(e) => handleElementContextMenu(e, element.id)}
       >
-        {element.locked && (
-          <div className="absolute z-10 -top-2 -right-2 w-5 h-5 bg-amber-400 text-white rounded-full flex items-center justify-center text-[10px] shadow-md pointer-events-none" style={{ border: '1.5px solid white' }} title="已锁定：拖拽/缩放/旋转不会改变元素">🔒</div>
-        )}
+        {element.locked && <LockBadge />}
         {isSingle(element.id) && !isBackgroundElement(element) && (
           <TransformHandles element={element} handleRef={handleRef} />
         )}
@@ -905,6 +897,16 @@ const Canvas: React.FC = () => {
     </>
   )
 }
+
+// 统一锁图标组件
+const LockBadge: React.FC = () => (
+  <div
+    className="absolute z-10 -top-2 -right-2 w-5 h-5 bg-amber-400 text-white rounded-full flex items-center justify-center text-[10px] shadow-md pointer-events-none border-[1.5px] border-white"
+    title="已锁定：拖拽/缩放/旋转不会改变元素"
+  >
+    🔒
+  </div>
+)
 
 // 变换手柄：4 角缩放 + 顶部旋转 + 水平/垂直翻转
 const TransformHandles: React.FC<{ element: any; handleRef: React.MutableRefObject<any> }> = ({ element, handleRef }) => {
