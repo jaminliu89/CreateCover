@@ -4,7 +4,7 @@
   "version": "3.3.0",
   "meta": {
     "philosophy": {
-      "humanistic": "Warm neutral surfaces with rich graphite text; no SaaS blue",
+      "humanistic": "Modern minimalist pure palette; glacial grey canvas, crisp paper white, deep graphite text",
       "generousSpace": "Rhythm and negative space over heavy borders and containers",
       "quietRestraint": "Chrome remains quiet until user intent manifests",
       "epicProportions": "Classic editorial hierarchy with timeless contrast and scale"
@@ -12,34 +12,34 @@
   },
   "color": {
     "surface": {
-      "page": { "value": "#F9F8F6", "type": "color", "description": "Humanistic warm parchment base canvas" },
-      "card": { "value": "#FFFFFF", "type": "color", "description": "Pure paper content layer" },
-      "raised": { "value": "#F3F1ED", "type": "color", "description": "Quiet control container" },
-      "floating": { "value": "#FFFFFF", "type": "color", "description": "Popover and dialog surface with soft diffusion shadow" },
-      "overlay": { "value": "rgba(26, 26, 30, 0.4)", "type": "color", "description": "Backdrop dim overlay" }
+      "page": { "value": "#FAFAFA", "type": "color", "description": "Crisp glacial light grey canvas" },
+      "card": { "value": "#FFFFFF", "type": "color", "description": "Pure crisp paper content layer" },
+      "raised": { "value": "#F4F4F5", "type": "color", "description": "Quiet modern grey control container" },
+      "floating": { "value": "#FFFFFF", "type": "color", "description": "Popover surface with micro diffusion shadow" },
+      "overlay": { "value": "rgba(24, 24, 27, 0.4)", "type": "color", "description": "Backdrop dim overlay" }
     },
     "text": {
-      "primary": { "value": "#1A1A1E", "type": "color", "description": "Near-black graphite text" },
-      "secondary": { "value": "#6E6E78", "type": "color", "description": "Muted editorial metadata" },
-      "tertiary": { "value": "#9A9AA5", "type": "color", "description": "Quiet chrome captions" },
+      "primary": { "value": "#18181B", "type": "color", "description": "Deep graphite black text" },
+      "secondary": { "value": "#71717A", "type": "color", "description": "Muted modern metadata" },
+      "tertiary": { "value": "#A1A1AA", "type": "color", "description": "Quiet chrome captions" },
       "inverse": { "value": "#FFFFFF", "type": "color", "description": "Inverse text for dark badges" }
     },
     "border": {
-      "subtle": { "value": "#E8E6E1", "type": "color", "description": "Subtle organic division line" },
-      "default": { "value": "#DCD9D2", "type": "color", "description": "Standard control border" },
-      "strong": { "value": "#1A1A1E", "type": "color", "description": "Focused or active border" }
+      "subtle": { "value": "#F4F4F5", "type": "color", "description": "Ultra subtle division line" },
+      "default": { "value": "#E4E4E7", "type": "color", "description": "Standard modern border" },
+      "strong": { "value": "#18181B", "type": "color", "description": "Focused or active border" }
     },
     "action": {
-      "primary": { "value": "#1A1A1E", "type": "color", "description": "Singular primary CTA" },
-      "primaryHover": { "value": "#2E2E35", "type": "color" },
+      "primary": { "value": "#18181B", "type": "color", "description": "Singular primary CTA" },
+      "primaryHover": { "value": "#27272A", "type": "color" },
       "primaryText": { "value": "#FFFFFF", "type": "color" }
     },
     "ai": {
-      "suggestion": { "value": "#FAF6F0", "type": "color", "description": "Warm subtle AI suggestion background" },
-      "suggestionBorder": { "value": "#E6DEC6", "type": "color" },
-      "processing": { "value": "#F3EFE6", "type": "color" },
-      "diffAdded": { "value": "#E6F4EA", "type": "color", "description": "Botanical green for AI addition" },
-      "diffRemoved": { "value": "#FCE8E6", "type": "color", "description": "Soft crimson for AI deletion" }
+      "suggestion": { "value": "#F4F4F5", "type": "color", "description": "Modern crisp grey AI suggestion background" },
+      "suggestionBorder": { "value": "#E4E4E7", "type": "color" },
+      "processing": { "value": "#F4F4F5", "type": "color" },
+      "diffAdded": { "value": "#ECFDF5", "type": "color", "description": "Crisp mint green for AI addition" },
+      "diffRemoved": { "value": "#FEF2F2", "type": "color", "description": "Ice crimson for AI deletion" }
     }
   },
   "radius": {
@@ -48,8 +48,8 @@
     "pill": { "value": "9999px", "type": "dimension", "description": "Semantic status badges ONLY" }
   },
   "shadow": {
-    "floating": { "value": "0 8px 32px rgba(26, 26, 30, 0.06)", "type": "shadow" },
-    "modal": { "value": "0 16px 48px rgba(26, 26, 30, 0.12)", "type": "shadow" }
+    "floating": { "value": "0 8px 30px rgba(0, 0, 0, 0.04)", "type": "shadow" },
+    "modal": { "value": "0 16px 48px rgba(0, 0, 0, 0.08)", "type": "shadow" }
   },
   "typography": {
     "fontFamily": {

@@ -1,5 +1,6 @@
 # Parchment Design System v3.3
 > **Core Aesthetic Philosophy**: 人文 (Humanistic) · 留白 (Generous Space) · 克制 (Quiet Restraint) · 史诗 (Epic Proportions)
+> **Color Voice**: 现代极简纯净色系 (Modern Minimalist Pure Neutrals) — 极致冷洁白 + 纯净石墨黑 + 冰川微灰
 
 ---
 
@@ -7,7 +8,7 @@
 
 Parchment 不仅仅是一套 UI 控件库，而是一个面向 **创作者工具 (Creator Tools) 与 AI 工作空间 (AI Workspaces)** 的通用视觉操作系统。
 
-在 v3.3 中，我们明确凝练四大核心精神基石：
+在 v3.3 中，我们将“现代极简”的纯净色彩质感注入四大核心精神基石：
 
 ```
                     ┌──────────────────────────┐
@@ -23,7 +24,7 @@ Parchment 不仅仅是一套 UI 控件库，而是一个面向 **创作者工具
 ```
 
 ### 🧠 人文 (Humanistic Editorial)
-* **温润纸感与纸墨意境**：告别冷冰冰的蓝灰科技感（No SaaS Blue）。底色采用温润羊皮纸/云雾白 (`#F9F8F6`) 与石墨沉香黑 (`#1A1A1E`)，营造典雅的书卷气与长久阅读的舒适感。
+* **现代极简纯净色彩**：告别温暖羊皮纸/云雾白，全面转向**纯净冰川灰底 (`#FAFAFA`) + 纯白质感层 (`#FFFFFF`) + 深邃石墨黑 (`#18181B`)**。如冷泉般通透无噪，带来现代科技与人文思考兼具的沉浸感。
 * **经典衬线与现代无衬线的律动**：以 Sans（无衬线）保障高密度界面的精准操作，以 Editorial Serif（衬线体）表达思考、灵感与长文人文温度。
 
 ### 🍃 留白 (Generous Space & Breath)
@@ -32,7 +33,7 @@ Parchment 不仅仅是一套 UI 控件库，而是一个面向 **创作者工具
 
 ### 🕯️ 克制 (Quiet Restraint)
 * **极简 Chrome，内容至上**：所有的按钮、边框、侧边栏均处于“静默（Quiet）”状态。只有当用户产生交互意图（Hover / Focus / Active）时， affordance 才精确显现。
-* **去色彩霸权**：拒绝彩虹般炫目的 AI 渐变或饱和度过高的装饰状态。AI 被定义为“**静默的助手状态 (Behavioral State)**”，而非喧宾夺主的色彩主题。
+* **去色彩霸权**：拒绝彩虹般炫目的 AI 渐变或高饱和度装饰。AI 被定义为“**静默的行为状态 (Behavioral State)**”，而非喧宾夺主的色彩主题。
 
 ### 🏛️ 史诗 (Epic Proportions & Timeless Hierarchy)
 * **大开大合的视效张力**：运用**黄金分割与大尺度排版对比**（如 72px/48px 的典雅 Serif 巨幅标题 vs 12px 极为微弱的 Mono 元数据），呈现经典出版物级别的震撼秩序。
@@ -40,38 +41,25 @@ Parchment 不仅仅是一套 UI 控件库，而是一个面向 **创作者工具
 
 ---
 
-## 02. 设计契约与视觉 DNA (Design Contracts)
+## 02. 现代极简色彩与表面层级 (Modern Minimalist Palette & Surfaces)
 
-### 2.1 表面与空间层级 (Surface & Spacing Scale)
-
-拒绝靠阴影堆叠，使用 **色彩温暖度 (Warmth) + 空间密度** 表达层级：
+拒绝偏黄偏暖的旧色彩，使用**绝对纯净的中性冷灰色阶**与空间密度表达层级：
 
 ```text
-surface-0 (Page / Canvas)     #F9F8F6  ── 暖纸底层，极致开阔
-surface-1 (Card / Container)  #FFFFFF  ── 创作承载面，纯净无噪
-surface-2 (Raised / Sticky)   #F3F1ED  ── 沉淀操作面，温和嵌入
-surface-3 (Floating / Dialog) #FFFFFF  ── 悬浮对话层，配极微弱漫反射阴影 (0 8px 32px rgba(26,26,30,0.06))
+surface-0 (Page / Canvas)     #FAFAFA  ── 冰川极轻灰，纯净无瑕的开阔基底
+surface-1 (Card / Container)  #FFFFFF  ── 纯白创作面，通透清晰
+surface-2 (Raised / Sticky)   #F4F4F5  ── 现代灰色阶，沉淀操作面
+surface-3 (Floating / Dialog) #FFFFFF  ── 悬浮层，配超微弱冷影 (0 8px 30px rgba(0,0,0,0.04))
 ```
-
-### 2.2 形状契约 (Semantic Geometry)
-
-形状是语义的延伸，非随意的装饰：
-
-| 形状类型 | 语义用途 | 规范尺寸/圆角 |
-| --- | --- | --- |
-| **Control (标准控件)** | 次级按钮、输入框、菜单项 | `9px` 圆角 (`radius-control`) |
-| **Surface (卡片与容器)** | 编辑器容器、弹窗、侧边栏 | `12px` 圆角 (`radius-surface`) |
-| **Pill (胶囊状)** | 仅用于状态指示 (Status Chip / Tag) | `9999px`（**禁止**将常规按钮做成 Pill）|
-| **Circle (圆形)** | 单一独立图标按钮、用户头像 | `50%` 圆形 |
 
 ---
 
-## 03. Token 架构与编译流 (Token Architecture)
+## 03. Token 架构 (Token Architecture)
 
 系统的 JSON Token 设计遵循五层派生链：
 
 ```
-Primitive Token (原始色值/数值)
+Primitive Token (现代极简色值/尺寸)
   └─► Semantic Token (语义别名: text.primary, surface.page)
         └─► Component Token (组件绑定: button.height, input.radius)
               └─► AI State Token (AI 状态别名: ai.diffAdded, ai.suggestion)
@@ -80,23 +68,18 @@ Primitive Token (原始色值/数值)
 
 ---
 
-## 04. AI-Native 交互状态契约 (Quiet AI States)
+## 04. AI-Native 现代极简状态契约 (Quiet AI States)
 
-AI 在 Parchment 3.3 中拥有 **9 种静默行为语义**，绝对不自动使用紫色/彩虹渐变：
+AI 在 Parchment 3.3 中拥有 **9 种静默行为语义**，采用现代极简灰阶与极低饱和度微调：
 
 ```css
-/* AI 语义状态定义 (非侵入式) */
---parchment-ai-suggestion: #FAF6F0;     /* 建议状态：温暖米黄 */
---parchment-ai-suggestion-border: #E6DEC6;
---parchment-ai-processing: #F3EFE6;     /* 推理/生成中：柔和呼吸感 */
---parchment-ai-diff-added: #E6F4EA;     /* AI 增加内容：柔和植物绿 */
---parchment-ai-diff-removed: #FCE8E6;   /* AI 删除/冲突：柔和绯红 */
+/* AI 语义状态定义 (现代极简纯净风格) */
+--parchment-ai-suggestion: #F4F4F5;     /* 建议状态：极轻现代灰 */
+--parchment-ai-suggestion-border: #E4E4E7;
+--parchment-ai-processing: #F4F4F5;     /* 推理/生成中：柔和脉冲感 */
+--parchment-ai-diff-added: #ECFDF5;     /* AI 增加内容：薄荷冷绿 */
+--parchment-ai-diff-removed: #FEF2F2;   /* AI 删除/冲突：冰爽微红 */
 ```
-
-### AI 交互三准则：
-1. **可逆性 (Reversibility)**：任何 AI 生成的操作都必须提供 1-click `Accept / Reject / Diff` 结构化响应。
-2. **从属关系 (Subordination)**：在用户未采纳前，AI 建议的视觉权重必须低于用户原稿。
-3. **消除焦虑 (Calm Processing)**：AI 推理过程使用微弱的光感脉冲，非剧烈的 Spinner 旋转。
 
 ---
 
@@ -116,6 +99,7 @@ AI 在 Parchment 3.3 中拥有 **9 种静默行为语义**，绝对不自动使�
 .parchment-editorial-title {
   font-family: "Source Serif Pro", Georgia, "Noto Serif SC", "Songti SC", serif;
   font-weight: 600;
+  color: #18181B;
   letter-spacing: -0.01em;
 }
 ```
