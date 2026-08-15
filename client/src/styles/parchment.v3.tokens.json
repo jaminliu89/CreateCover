@@ -1,0 +1,53 @@
+{
+  "name": "Parchment Design System Tokens",
+  "version": "3.2.0",
+  "philosophy": "Quiet Editorial — Content first / Precise interaction / Neutral visual language",
+  "color": {
+    "surface": {
+      "page": "#F9F8F6",
+      "card": "#FFFFFF",
+      "raised": "#F3F1ED",
+      "floating": "#FFFFFF",
+      "overlay": "rgba(22, 22, 26, 0.4)"
+    },
+    "text": {
+      "primary": "#1A1A1E",
+      "secondary": "#6E6E78",
+      "tertiary": "#9A9AA5",
+      "inverse": "#FFFFFF"
+    },
+    "border": {
+      "subtle": "#E8E6E1",
+      "default": "#DCD9D2",
+      "strong": "#1A1A1E"
+    },
+    "action": {
+      "primary": "#1A1A1E",
+      "primaryHover": "#2E2E35",
+      "primaryText": "#FFFFFF"
+    },
+    "ai": {
+      "suggestion": "#FAF6F0",
+      "suggestionBorder": "#E6DEC6",
+      "processing": "#F3EFE6",
+      "diffAdded": "#E6F4EA",
+      "diffRemoved": "#FCE8E6"
+    }
+  },
+  "radius": {
+    "control": "9px",
+    "surface": "12px",
+    "pill": "9999px"
+  },
+  "typography": {
+    "fontFamily": {
+      "sans": "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif",
+      "serif": "'Source Serif Pro', Georgia, Cambria, 'Noto Serif SC', serif",
+      "mono": "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+    },
+    "cjk": {
+      "lineHeightRatio": 1.6,
+      "letterSpacing": "0.02em"
+    }
+  }
+}
