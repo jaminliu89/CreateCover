@@ -7,27 +7,10 @@ export default {
   theme: {
     extend: {
       colors: {
-        primary: '#1A1A1E',
-        parchment: {
-          bg: '#F9F8F6',
-          card: '#FFFFFF',
-          raised: '#F3F1ED',
-          border: '#E8E6E1',
-          text: '#1A1A1E',
-          subtext: '#6E6E78',
-          aiBg: '#FAF6F0',
-          aiBorder: '#E6DEC6',
-        },
+        primary: '#FF6B35',
       },
-      borderRadius: {
-        'parchment-control': '9px',
-        'parchment-surface': '12px',
-      },
-      fontFamily: {
-        sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "PingFang SC", "Microsoft YaHei", "sans-serif"],
-        serif: ["'Source Serif Pro'", "Georgia", "Noto Serif SC", "serif"],
-        mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "monospace"],
-      },
+      // 整体放大基础字号（用户反馈"整体页面字体变小了"，再放大一档到舒服的尺度）
+      // base 19px / sm 17px / xs 15px / lg 21px / xl 23px / 2xl 27px / 3xl 33px
       fontSize: {
         'xs': ['15px', { lineHeight: '20px' }],
         'sm': ['17px', { lineHeight: '24px' }],
